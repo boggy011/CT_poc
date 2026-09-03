@@ -1,0 +1,11 @@
+resources:
+  apps:
+    retpack_portal:
+      name: retpack-portal
+      description: ABI RetPack returnable packaging intake portal
+      source_code_path: ..
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE

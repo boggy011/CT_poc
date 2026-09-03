@@ -13,3 +13,4 @@ build/
 .env
 .retpack_attachments/
 .DS_Store
+.retpack/

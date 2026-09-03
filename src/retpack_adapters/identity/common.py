@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 
+from retpack_core.audit import audit
 from retpack_core.ports import AccountDirectory
 from retpack_core.principal import Principal, Role
 
@@ -18,6 +19,7 @@ def principal_for(directory: AccountDirectory, email: str | None) -> Principal |
         return Principal(email=email, account_ids=frozenset(), role=Role.INTERNAL)
     accounts = directory.account_ids_for_email(email)
     if not accounts:
+        audit("login_unprovisioned", None, email=email)
         return None
     return Principal(email=email, account_ids=accounts, role=Role.CUSTOMER)
 

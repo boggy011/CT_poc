@@ -72,6 +72,48 @@ def test_mock_users_resolve_through_identity(tmp_path: Path):
     assert ops is not None and ops.role is Role.INTERNAL
 
 
-def test_non_mock_backends_not_wired_yet(tmp_path: Path):
-    with pytest.raises(NotImplementedError, match="Phase B"):
-        build_container(Settings.from_env({"RETPACK_SUBMISSION_BACKEND": "lakebase"}))
+def test_sqlite_backend_persists_between_containers(tmp_path: Path):
+    env = {
+        "RETPACK_SUBMISSION_BACKEND": "sqlite",
+        "RETPACK_SQLITE_PATH": str(tmp_path / "db.sqlite"),
+        "RETPACK_ATTACHMENT_DIR": str(tmp_path / "att"),
+        "RETPACK_MOCK_SEED": "1",
+    }
+    c1 = build_container(Settings.from_env(env))
+    internal = Principal(email="ops1@abi.example", account_ids=frozenset(), role=Role.INTERNAL)
+    first = c1.ports.submissions.list_submissions(internal)
+    assert len(first) == 11 and c1.backend == "sqlite" and c1.demo_users
+    c2 = build_container(Settings.from_env(env))  # seed must not duplicate
+    assert len(c2.ports.submissions.list_submissions(internal)) == 11
+    anna = c2.identity.resolve({"X-Forwarded-Email": "anna@northsea-distribution.example"})
+    assert anna is not None and anna.account_ids == frozenset({"A1", "A2"})
+    assert c2.ports.reference.keg_balance(anna, "A1") is not None
+
+
+def test_workspace_backend_requires_settings():
+    with pytest.raises(ConfigError, match="catalog"):
+        build_container(Settings.from_env({"RETPACK_SUBMISSION_BACKEND": "delta"}))
+    with pytest.raises(ConfigError, match="lakebase_instance"):
+        build_container(
+            Settings.from_env({"RETPACK_SUBMISSION_BACKEND": "lakebase", "RETPACK_CATALOG": "c", "DATABRICKS_WAREHOUSE_ID": "w"}),
+            executors={"delta": lambda: None},  # type: ignore[dict-item]
+        )
+
+
+def test_workspace_backends_wire_sql_repos_volume_store_and_apps_identity(tmp_path: Path):
+    from retpack_adapters.attachments.memory_files import InMemoryFilesClient
+    from retpack_adapters.attachments.volume import VolumeAttachmentStore
+    from retpack_adapters.identity.databricks_apps import DatabricksAppsIdentityProvider
+    from retpack_adapters.sql import SqlSubmissionRepository
+    from retpack_adapters.sql.migrate import apply_files, migration_files
+    from retpack_adapters.sqlite.executor import SqliteExecutor
+
+    db = SqliteExecutor()
+    apply_files(db, migration_files(Path("migrations/sqlite")), {})
+    env = {"RETPACK_SUBMISSION_BACKEND": "lakebase", "RETPACK_CATALOG": "c", "DATABRICKS_WAREHOUSE_ID": "w", "RETPACK_LAKEBASE_INSTANCE": "lb"}
+    c = build_container(Settings.from_env(env), executors={"delta": lambda: db, "lakebase": lambda: db}, files_client=InMemoryFilesClient())
+    assert isinstance(c.ports.submissions, SqlSubmissionRepository)
+    assert isinstance(c.ports.attachments, VolumeAttachmentStore)
+    assert isinstance(c.identity, DatabricksAppsIdentityProvider)
+    assert c.demo_users == ()
+    assert c.settings.volume_root == "/Volumes/c/retpack/attachments"

@@ -1,9 +1,9 @@
 """Internal review: overwrite fields and validate (FR-09), each as one event append."""
 
-import logging
 from typing import Any
 
 from retpack_core import events
+from retpack_core.audit import audit
 from retpack_core.errors import ConcurrencyConflictError, NotPermittedError, StateError, ValidationFailedError
 from retpack_core.events import SubmissionEvent
 from retpack_core.fieldspec import FormSpec, validate_field, validate_values
@@ -12,8 +12,6 @@ from retpack_core.models import Status
 from retpack_core.ports import Ports
 from retpack_core.principal import Principal
 from retpack_core.services.options import Choice, enum_choices, enum_options
-
-logger = logging.getLogger(__name__)
 
 REVIEWABLE = frozenset({Status.SUBMITTED, Status.CPI_FAILED})
 """Statuses the internal team may act on. A dead letter (CPI_FAILED) is corrected and re-validated here."""
@@ -57,7 +55,7 @@ class ReviewService:
         event = events.field_overwritten(
             sub.submission_id, sub.account_id, actor=principal.email, seq=expected_seq + 1, field=field, prior=sub.values.get(field), new=value
         )
-        logger.info("submission %s field %s overwritten by %s", sub.submission_id, field, principal.email)
+        audit("field_overwritten", principal, submission_id=sub.submission_id, account_id=sub.account_id, field=field)
         return self._append(principal, log, expected_seq, event)
 
     def validate(self, principal: Principal, submission_id: str, *, expected_seq: int) -> Submission:
@@ -76,11 +74,12 @@ class ReviewService:
         if not result.ok:
             raise ValidationFailedError(result.errors)
         event = events.validated(sub.submission_id, sub.account_id, actor=principal.email, seq=expected_seq + 1)
-        logger.info("submission %s validated by %s", sub.submission_id, principal.email)
+        audit("submission_validated", principal, submission_id=sub.submission_id, account_id=sub.account_id)
         return self._append(principal, log, expected_seq, event)
 
     def _load(self, principal: Principal, submission_id: str, expected_seq: int) -> tuple[tuple[SubmissionEvent, ...], Submission]:
         if not principal.is_internal:
+            audit("review_denied", principal, submission_id=submission_id)
             raise NotPermittedError("only the internal team can review requests")
         log = self._ports.submissions.get_events(principal, submission_id)
         sub = fold(log)

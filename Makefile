@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test test-cov contract-delta contract-lakebase run-mock security check
+.PHONY: install lint format typecheck test test-cov contract-delta contract-lakebase run-mock run-sqlite migrate-sqlite migrate-delta security check
 
 install:
 	uv sync --all-extras
@@ -25,6 +25,15 @@ contract-delta:
 
 contract-lakebase:
 	RETPACK_TEST_LAKEBASE=1 uv run pytest tests/contract -k lakebase
+
+run-sqlite:
+	RETPACK_SUBMISSION_BACKEND=sqlite RETPACK_MOCK_SEED=1 uv run streamlit run src/retpack_ui/app.py
+
+migrate-sqlite:
+	uv run python -m retpack_adapters.migrate_cli sqlite
+
+migrate-delta:
+	uv run python -m retpack_adapters.migrate_cli delta
 
 run-mock:
 	RETPACK_SUBMISSION_BACKEND=mock RETPACK_MOCK_SEED=1 uv run streamlit run src/retpack_ui/app.py

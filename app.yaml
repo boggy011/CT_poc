@@ -1,0 +1,24 @@
+# Databricks Apps manifest. Bind a SQL warehouse resource with key `sql-warehouse` when creating the app;
+# the platform injects DATABRICKS_HOST / client credentials for the app service principal automatically.
+# Enable user authorization on the app so X-Forwarded-Access-Token is forwarded (used to verify identity).
+command: ["streamlit", "run", "src/retpack_ui/app.py"]
+
+env:
+  - name: RETPACK_SUBMISSION_BACKEND
+    value: delta
+  - name: RETPACK_CATALOG
+    value: ct_retpack_dev
+  - name: RETPACK_SCHEMA
+    value: retpack
+  - name: RETPACK_REF_SCHEMA
+    value: retpack
+  - name: RETPACK_VOLUME
+    value: attachments
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: RETPACK_FIELD_SPEC
+    value: config/fields/placeholder.yaml
+  - name: RETPACK_ATTACHMENT_POLICY
+    value: config/attachments.yaml
+  - name: RETPACK_TRUST_FORWARDED_EMAIL
+    value: "0"

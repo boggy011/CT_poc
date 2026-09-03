@@ -1,0 +1,50 @@
+resources:
+  jobs:
+    retpack_migrate:
+      name: retpack-migrate
+      tasks:
+        - task_key: migrate
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/retpack_adapters/migrate_cli.py
+            parameters: ["delta"]
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies: ["../dist/*.whl"]
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+
+    retpack_maintenance:
+      name: retpack-maintenance
+      schedule:
+        quartz_cron_expression: "0 0 3 * * ?"
+        timezone_id: Europe/Brussels
+      tasks:
+        - task_key: optimize
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/retpack_jobs/maintenance.py
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies: ["../dist/*.whl"]
+
+    retpack_reaper:
+      name: retpack-attachment-reaper
+      schedule:
+        quartz_cron_expression: "0 30 3 * * ?"
+        timezone_id: Europe/Brussels
+      tasks:
+        - task_key: reap
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/retpack_jobs/reaper_cli.py
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies: ["../dist/*.whl"]

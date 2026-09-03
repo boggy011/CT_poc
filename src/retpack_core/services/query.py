@@ -2,6 +2,7 @@
 
 from typing import BinaryIO
 
+from retpack_core.audit import audit
 from retpack_core.errors import NotFoundError
 from retpack_core.fold import Submission
 from retpack_core.models import Account, KegBalance, Status
@@ -25,7 +26,11 @@ class QueryService:
         Raises:
             NotFoundError: If unknown or outside the principal's scope.
         """
-        return self._ports.submissions.get_submission(principal, submission_id)
+        try:
+            return self._ports.submissions.get_submission(principal, submission_id)
+        except NotFoundError:
+            audit("access_denied_or_missing", principal, submission_id=submission_id)
+            raise
 
     def accounts(self, principal: Principal) -> tuple[Account, ...]:
         """Accounts the principal may see."""

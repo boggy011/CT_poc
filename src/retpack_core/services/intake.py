@@ -8,6 +8,7 @@ from typing import Any, BinaryIO
 
 from retpack_core import events
 from retpack_core.attachments import AttachmentPolicy
+from retpack_core.audit import audit
 from retpack_core.errors import NotPermittedError, ValidationFailedError
 from retpack_core.fieldspec import FormSpec, validate_values
 from retpack_core.fold import Submission, fold
@@ -65,6 +66,7 @@ class IntakeService:
                 nothing is stored in that case.
         """
         if not principal.is_scoped:
+            audit("submit_denied", principal, reason="not_customer")
             raise NotPermittedError("only customer accounts can submit requests")
         account_id = self._account_from(values)
         result = validate_values(values, self._spec, enum_options=self.enum_options(principal, account_id=account_id))
@@ -84,7 +86,7 @@ class IntakeService:
         except Exception:
             self._discard(principal, metas)
             raise
-        logger.info("submission %s created by %s for account %s with %d attachment(s)", submission_id, principal.email, account_id, len(metas))
+        audit("submission_created", principal, submission_id=submission_id, account_id=account_id, attachments=len(metas))
         return IntakeResult(submission=fold([event]), warnings=_warnings(metas))
 
     def _account_from(self, values: Mapping[str, Any]) -> str | None:
@@ -97,6 +99,7 @@ class IntakeService:
         f = self._spec.account_field
         account = cleaned.get(f.name) if f else None
         if account is None or str(account) not in principal.account_ids:
+            audit("submit_denied", principal, reason="foreign_account", account_id=account)
             raise NotPermittedError("the request must belong to one of your accounts")
         return str(account)
 
@@ -121,6 +124,7 @@ class IntakeService:
         for a in attachments:
             digest, is_pdf = _sha256_and_magic(a.stream)
             if not is_pdf:
+                audit("attachment_rejected", None, reason="not_pdf", doc_type=a.doc_type)
                 errors[f"attachments.{a.doc_type}"] = [f"{a.filename} is not a PDF"]
             digests.append(digest)
         if len(set(digests)) != len(digests):

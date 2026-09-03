@@ -1,0 +1,23 @@
+# Databricks Asset Bundle: app, migrations, maintenance and reaper jobs. `databricks bundle deploy -t dev`.
+bundle:
+  name: retpack
+
+variables:
+  catalog:
+    default: ct_retpack_dev
+  schema:
+    default: retpack
+  warehouse_id:
+    description: SQL warehouse used by the app and the migration job
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+  prod:
+    mode: production
+    variables:
+      catalog: ct_retpack_prod

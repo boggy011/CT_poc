@@ -40,3 +40,25 @@ jobs:
       - run: uv sync --all-extras
       - run: uv run bandit -q -r src -c pyproject.toml
       - run: uv run pip-audit --skip-editable
+
+  contract-workspace:
+    # Runs the contract + isolation suites against a real workspace when the repository variable is set.
+    if: ${{ vars.RETPACK_WORKSPACE_READY == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      RETPACK_TEST_DELTA: "1"
+      RETPACK_SUBMISSION_BACKEND: delta
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      DATABRICKS_WAREHOUSE_ID: ${{ vars.DATABRICKS_WAREHOUSE_ID }}
+      RETPACK_CATALOG: ${{ vars.RETPACK_CATALOG }}
+      RETPACK_SCHEMA: retpack_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --all-extras
+      - run: uv run python -m retpack_adapters.migrate_cli delta
+      - run: uv run pytest tests/contract tests/isolation -k delta -q

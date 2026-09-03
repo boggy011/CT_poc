@@ -1,19 +1,15 @@
 """Attachment store on a local directory. Used by the mock backend and by tests."""
 
-import re
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from typing import BinaryIO
 
+from retpack_adapters.attachments.common import check_segment, object_name, require_account, safe_filename
 from retpack_core.attachments import AttachmentPolicy
 from retpack_core.errors import InvalidAttachmentError, NotFoundError
 from retpack_core.models import AttachmentMeta
 from retpack_core.pdf import copy_and_hash, inspect_pdf
 from retpack_core.principal import Principal
-
-_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9_\-]+$")
-_UNSAFE_FILENAME_CHARS = re.compile(r'[\x00-\x1f\x7f"\\/]')
-MAX_FILENAME = 255
 
 
 class LocalAttachmentStore:
@@ -27,11 +23,11 @@ class LocalAttachmentStore:
     def put(self, principal: Principal, submission_id: str, *, account_id: str, doc_type: str, seq: int, filename: str, stream: BinaryIO) -> AttachmentMeta:
         """See ``AttachmentStore.put``."""
         for segment in (account_id, submission_id, doc_type):
-            _check_segment(segment)
-        self._require_account(principal, account_id)
+            check_segment(segment)
+        require_account(principal, account_id)
         target_dir = self._root / account_id / submission_id
         target_dir.mkdir(parents=True, exist_ok=True)
-        final = target_dir / f"{doc_type}_{seq}.pdf"
+        final = target_dir / object_name(doc_type, seq)
         part = final.with_name(final.name + ".part")
         try:
             with part.open("wb") as dst:
@@ -73,31 +69,12 @@ class LocalAttachmentStore:
         _prune_empty(path.parent, self._root)
 
     def _resolve(self, principal: Principal, meta: AttachmentMeta) -> Path:
-        self._require_account(principal, meta.account_id)
+        require_account(principal, meta.account_id)
         path = Path(meta.storage_path).resolve()
         expected_dir = (self._root / meta.account_id / meta.submission_id).resolve()
         if not path.is_relative_to(expected_dir):
             raise NotFoundError(f"attachment {meta.doc_type}/{meta.seq} not found")
         return path
-
-    @staticmethod
-    def _require_account(principal: Principal, account_id: str) -> None:
-        if principal.is_scoped and account_id not in principal.account_ids:
-            raise NotFoundError("attachment not found")
-
-
-def safe_filename(filename: str) -> str:
-    """Strip directories, control characters and quotes; cap the length; never empty."""
-    name = PurePosixPath(PureWindowsPath(filename).name).name
-    name = _UNSAFE_FILENAME_CHARS.sub("_", name).strip(" .")
-    if not name:
-        name = "document.pdf"
-    return name[:MAX_FILENAME]
-
-
-def _check_segment(value: str) -> None:
-    if not _SAFE_SEGMENT.match(value):
-        raise ValueError(f"unsafe path segment {value!r}")
 
 
 def _prune_empty(path: Path, stop: Path) -> None:
