@@ -152,6 +152,7 @@ class Principal:
 - `INTERNAL` principals are unfiltered but every read is logged with actor identity.
 - Cross-tenant access raises `NotFoundError`, never `Forbidden`, so existence of another tenant's request is not leaked.
 - Principal-scoped data is **never** placed in `st.cache_data` or `st.cache_resource` (both are process-global across sessions). Only global reference data (sales orgs) is cached. Per-account SKU lists are 4–5 rows; fetch them uncached.
+- Session state is bound to the principal's email; any change of identity within a session purges every key except the demo switcher.
 
 ### 4.2 Event model and status derivation
 
@@ -181,8 +182,8 @@ class EventType(StrEnum):
 
 ### 4.4 Attachments
 
-- `AttachmentStore.put(principal, submission_id, doc_type, stream: BinaryIO, filename) -> AttachmentMeta` consumes the stream once: checks `%PDF-` in the first 1024 bytes, hashes SHA-256 while copying to the destination, and never holds the whole file in memory. Streamlit's `UploadedFile` is a `BytesIO` on the app side; the store must stream it out to the Volume rather than re-buffering.
-- `page_count` and `has_text_layer` computed with `pypdf` on the stored file, checking the first 3 pages only. `has_text_layer=False` renders a warning on the intake page; it never blocks (FR-06).
+- `AttachmentStore.put(principal, submission_id, *, account_id, doc_type, seq, filename, stream) -> AttachmentMeta` consumes the stream once: requires `%PDF-` at offset 0, hashes SHA-256 while copying to the destination, and never holds the whole file in memory. Streamlit's `UploadedFile` is a `BytesIO` on the app side; the store must stream it out to the Volume rather than re-buffering. Objects live under `<account_id>/<submission_id>/` and the store refuses access outside the principal's accounts.
+- `page_count` and `has_text_layer` computed with `pypdf` on the stored file in a sandboxed subprocess (time and memory budget from the policy), checking the first 3 pages only. `has_text_layer=False` renders a warning on the intake page; it never blocks (FR-06). A file that cannot be inspected within budget is rejected as unreadable.
 - Duplicate `sha256` within the same submission is rejected; across submissions it is surfaced to the internal queue as an information flag only.
 - Doc types and cardinality are config in the same YAML family (`config/attachments.yaml`), placeholder in Phase A, real in Phase C after input 2.
 - Size limit: 25 MB per file, enforced server-side. `[CT]` placeholder value pending input 2.
@@ -259,6 +260,8 @@ Complexity: **S** ≤ 0.5 day, **M** 1–2 days, **L** 3–5 days. Each step lis
 
 ### Phase A — Mock POC (no ABI input)
 
+**Status (3 Sep 2026): complete.** All fifteen steps below are implemented and reviewed. Gate: 268 tests passing, 64 env-gated skips for the Delta and Lakebase parametrizations, coverage 95%, ruff, mypy, bandit and pip-audit clean, `make run-mock` boots. Deviations from the table: demo data lives in `config/mock/` rather than `tests/fixtures/` so the app and the tests share it; the mock adapters were built in A6 alongside the services (the hand-written fake would have duplicated them). Decisions taken during the A15 review pass are listed under "Review outcomes" after the table.
+
 | # | Step | Cx | Tests first |
 |---|---|---|---|
 | A1 | Scaffold: `pyproject.toml` with extras, src layout, ruff/mypy/pytest config, Makefile, CI pipeline running lint + type + unit | S | CI green on empty packages |
@@ -279,6 +282,22 @@ Complexity: **S** ≤ 0.5 day, **M** 1–2 days, **L** 3–5 days. Each step lis
 
 Exit: `make test` green with ≥ 80% coverage; `make run-mock` demonstrates all three screens; isolation suite green on mock.
 
+**Review outcomes (A15).** Two independent review passes (code quality, security) produced 23 and 19 findings. All were applied; the ones that changed the design are recorded here so Phase B builds on them:
+
+- **Session state is bound to the principal.** Every rerun re-resolves identity and purges all session keys except the demo switcher when the email changes. Regression test: switching the demo user after a submit renders nothing of the previous user.
+- **Attachment storage is account-scoped.** Objects live under `<account_id>/<submission_id>/`, `AttachmentMeta` carries `account_id`, and the store itself refuses reads and writes outside the principal's accounts. This is the second FR-02 layer for attachments; the service check through the repository remains the first. The Volume adapter in Phase B mirrors the path.
+- **PDF inspection is sandboxed.** Page count and text-layer detection run in a short-lived subprocess with a wall-clock budget (`inspect_timeout_s`) and an address-space limit; `max_pages` is policy. A 70 KB hostile file measured 193 s and 1.2 GB in-process before this change. `%PDF-` must be at offset 0: HTML and ZIP polyglots are rejected.
+- **No wholesale buffering on the download path.** The internal queue prepares one download at a time on an explicit click; at most one file is resident per session. Phase B replaces this with a short-lived presigned Volume URL (B4).
+- **Failed submits leave no orphans.** Stored PDFs are deleted if the event append fails. `delete` was added to the `AttachmentStore` port. A reaper for Volume objects without a referencing event is a Phase B step (B12).
+- **Account ownership is enforced in the service**, not by the YAML declaring `account_id` as a scoped enum. The event's `account_id` comes from the validated values; the repository additionally rejects any event whose `account_id` differs from the submission's, and `fold` rejects a log that mixes accounts.
+- **Dead letters are reviewable.** `CPI_FAILED` (terminal) joins `SUBMITTED` as a status the internal team can correct and re-validate; re-validation clears the CPI error and re-arms dispatch. `VALIDATED`, `CPI_PENDING` and `CPI_DONE` stay read-only. This touches the frozen status enum (input 3) and is recorded against Q3.
+- **The owning account cannot be overwritten** through the correction panel or the service; changing ownership would need its own event type.
+- **Validator hardening.** Patterns match through the `regex` module with a per-match timeout and require `max_length` (≤ 1024); text without `max_length` is capped at 10,000 characters; numeric strings are length-capped before parsing; decimals are quantised to a per-field `scale` (default 2) so float noise never reaches the event log; every violated rule on a field is reported, not just the first.
+- **Corrupt logs are isolated.** A second `SUBMITTED` is rejected on append, and one unreadable log is skipped and logged rather than failing every user's list.
+- **Demo identity is structurally mock-only.** The switcher renders only when the container exposes `demo_users`, which only the mock backend populates; a "Demo mode: identity is not verified" banner is always shown with it. Demo seeding is opt-in (`RETPACK_MOCK_SEED=1`, set by `make run-mock`).
+- **Streamlit edges.** `.streamlit/config.toml` caps uploads at the policy size and hides exception details; a test keeps the cap in sync with `config/attachments.yaml`. A top-level handler logs unexpected errors with a short reference and shows a generic message.
+- **CI.** The isolation and contract suites run as their own required job; a security job runs bandit and pip-audit.
+
 ### Phase B — Real adapters (needs inputs 3, 4, 6, 7)
 
 | # | Step | Cx | Tests first |
@@ -286,14 +305,16 @@ Exit: `make test` green with ≥ 80% coverage; `make run-mock` demonstrates all 
 | B1 | `migrations/delta/`: `submission_event`, `attachment`, `submission_current` view (folded status for the job and for UC row filters), `keg_balance` placeholder table; table properties for auto-optimize and retention | M | Migration applies idempotently on a fresh schema (integration) |
 | B2 | `DeltaSubmissionRepository`: append via conditional MERGE + bounded retry, principal-filtered reads, `submission_current` for job polling | L | Contract suite on `delta`; conflict test with two writers |
 | B3 | `DeltaReferenceRepository` against input-4 views: SKUs per account, sales orgs, accounts for email, keg balance | S | Integration test per view |
-| B4 | `VolumeAttachmentStore` via Files API, streaming, path `/Volumes/<catalog>/<schema>/retpack/<submission_id>/<doc_type>_<seq>.pdf` | M | Integration: 20 MB upload does not exceed a memory ceiling; sha256 matches |
-| B5 | `DatabricksAppsIdentity`: forwarded headers → email → accounts via B3; verify proxy header trust model | S | Integration: request without header is rejected; spoofed header is overwritten |
+| B4 | `VolumeAttachmentStore` via Files API, streaming, path `/Volumes/<catalog>/<schema>/retpack/<account_id>/<submission_id>/<doc_type>_<seq>.pdf`; downloads via short-lived presigned URL and `st.link_button` so bytes never enter the app process | M | Integration: 20 MB upload does not exceed a memory ceiling; sha256 matches; cross-account open is refused by the store |
+| B5 | `DatabricksAppsIdentity`: derive the email from verified claims of `X-Forwarded-Access-Token` rather than trusting `X-Forwarded-Email`; confirm the proxy overwrites client-supplied headers | S | Integration: request without a token is rejected; spoofed header is ignored |
 | B6 | Lakebase: `migrations/lakebase/` (identity column, unique `(submission_id, seq)`), `LakebaseSubmissionRepository`, credential refresh | M | Contract suite on `lakebase` |
 | B7 | CI: contract job runs `[mock, delta, lakebase]` against the dev workspace, env-gated so local runs skip cleanly | M | — |
 | B8 | `app.yaml`, resource bindings (warehouse, volume, secrets, optional database), deploy to dev workspace | S | Smoke: deployed app renders intake for a test identity |
 | B9 | UC row filters on `submission_event` / `submission_current` keyed on `current_user()` ↔ account mapping, applied only if the app queries as the user; documented as defence-in-depth, not the primary control | S | Integration: user A cannot read B's rows through a raw SQL warehouse query |
 | B10 | Freeze `docs/data_contract.md` v1: event table DDL, event payload schemas, `Status` enum (input 3), attachment linkage, reference view names, balance table. Hand to the ABI AI team | S | — |
 | B11 | Scheduled `OPTIMIZE` / `VACUUM` job for Delta tables | S | — |
+| B12 | Reaper job: delete Volume objects with no referencing `SUBMITTED` / `ATTACHMENT_ADDED` payload older than N hours (orphans from failed appends) | S | Unit with stub listing |
+| B13 | Structured audit logging of authorization decisions (unprovisioned logins, cross-tenant `NotFoundError`, rejected attachments, role denials) without field values; wire to workspace logs | S | Log assertions in isolation suite |
 
 Exit: contract suite green on all three backends; app on dev workspace; data contract v1 signed off.
 
@@ -390,7 +411,7 @@ The questions document referenced by the requirements is not in this repository.
 |---|---|---|
 | Q1 — Customer email provisioning process | B5, C4 | Manual SCIM provisioning by ABI admins; portal only reads |
 | Q2 — Attachment types, cardinality, mandatory | C2 | One optional `delivery_note` PDF, 25 MB limit |
-| Q3 — Status enum | B10, C3 | Placeholder in §4.2 |
+| Q3 — Status enum | B10, C3 | Placeholder in §4.2. Phase A decision to confirm with ABI: a terminal `CPI_FAILED` request may be corrected and re-validated by the internal team |
 | Q6 — Keg balance calculation ownership | C6 | ABI provides a `keg_balance(account_id, balance, as_of)` view; portal reads it |
 | Reference view DDL (input 4) | B1, B3 | Column names guessed in fixtures, isolated behind `ReferenceRepository` |
 | CPI contract (input 5) | C5 | Stub endpoint; check CT's prior SAP BTP deliverables first |

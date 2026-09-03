@@ -96,6 +96,8 @@ fields:
     order: 20
     required: false
     min: 0
+    max: 100000
+    scale: 2
 
   - name: remarks
     label: Remarks

@@ -1,7 +1,10 @@
 # PLACEHOLDER attachment policy for Phase A.
 # Real document types, cardinality and size limit are ABI input 2 (see RETPACK_REQUIREMENTS.md section 7).
+# max_size_mb must match server.maxUploadSize in .streamlit/config.toml (a test enforces this).
 version: 1
 max_size_mb: 25
+max_pages: 500
+inspect_timeout_s: 15
 doc_types:
   - name: delivery_note
     label: Delivery note

@@ -15,9 +15,10 @@ class AttachmentMeta(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     submission_id: str
+    account_id: str
     doc_type: str
     seq: int = Field(ge=1)
-    original_filename: str
+    original_filename: str = Field(max_length=255, pattern=r'^[^\x00-\x1f\x7f"\\/]+$')
     storage_path: str
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=0)

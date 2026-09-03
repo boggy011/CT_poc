@@ -15,14 +15,16 @@ class RecordingAttachmentStore:
     def __init__(self) -> None:
         self.blobs: dict[str, bytes] = {}
         self.puts: list[tuple[str, str, str]] = []
+        self.deleted: list[str] = []
 
-    def put(self, principal: Principal, submission_id: str, *, doc_type: str, seq: int, filename: str, stream: BinaryIO) -> AttachmentMeta:
+    def put(self, principal: Principal, submission_id: str, *, account_id: str, doc_type: str, seq: int, filename: str, stream: BinaryIO) -> AttachmentMeta:
         data = stream.read()
-        path = f"mem://{submission_id}/{doc_type}_{seq}.pdf"
+        path = f"mem://{account_id}/{submission_id}/{doc_type}_{seq}.pdf"
         self.blobs[path] = data
         self.puts.append((principal.email, submission_id, doc_type))
         return AttachmentMeta(
             submission_id=submission_id,
+            account_id=account_id,
             doc_type=doc_type,
             seq=seq,
             original_filename=filename,
@@ -37,3 +39,7 @@ class RecordingAttachmentStore:
 
     def open(self, principal: Principal, meta: AttachmentMeta) -> BinaryIO:
         return BytesIO(self.blobs[meta.storage_path])
+
+    def delete(self, principal: Principal, meta: AttachmentMeta) -> None:
+        self.blobs.pop(meta.storage_path, None)
+        self.deleted.append(meta.storage_path)

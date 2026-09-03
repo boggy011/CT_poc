@@ -91,6 +91,29 @@ def test_validate_requires_mandatory_fields_present(review: ReviewService, ports
     assert "seal_no" in exc.value.errors
 
 
+def test_account_field_cannot_be_overwritten(review: ReviewService, submitted):
+    with pytest.raises(ValidationFailedError) as exc:
+        review.overwrite_field(INTERNAL, submitted.submission_id, field="account_id", new_value="B1", expected_seq=1)
+    assert exc.value.errors == {"account_id": ["cannot be changed"]}
+    assert "account_id" not in review.correctable_fields()
+
+
+def test_dead_letter_can_be_corrected_and_revalidated(review: ReviewService, ports, submitted):
+    from retpack_core import events
+    from retpack_core.errors import StateError
+
+    sid, acc = submitted.submission_id, submitted.account_id
+    review.validate(INTERNAL, sid, expected_seq=1)
+    ports.submissions.append_event(INTERNAL, sid, 2, events.cpi_dispatched(sid, acc, seq=3, idempotency_key=f"{sid}:2", attempt=1))
+    with pytest.raises(StateError):
+        review.overwrite_field(INTERNAL, sid, field="quantity", new_value="1", expected_seq=3)
+    ports.submissions.append_event(INTERNAL, sid, 3, events.cpi_failed(sid, acc, seq=4, error="unknown sold-to", attempt=3, terminal=True))
+    fixed = review.overwrite_field(INTERNAL, sid, field="bl_no", new_value="BL-78", expected_seq=4)
+    assert fixed.status is Status.CPI_FAILED and fixed.values["bl_no"] == "BL-78"
+    again = review.validate(INTERNAL, sid, expected_seq=5)
+    assert again.status is Status.VALIDATED and again.cpi_error is None and again.validated_seq == 6
+
+
 def test_review_of_unknown_submission_is_not_found(review: ReviewService):
     with pytest.raises(NotFoundError):
         review.validate(INTERNAL, "0190f0a0-0000-7000-8000-00000000dead", expected_seq=1)

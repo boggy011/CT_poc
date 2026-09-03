@@ -3,7 +3,7 @@
 import streamlit as st
 
 from retpack_adapters.factory import Container
-from retpack_core.errors import InvalidAttachmentError, ValidationFailedError
+from retpack_core.errors import InvalidAttachmentError, NotPermittedError, ValidationFailedError
 from retpack_core.principal import Principal
 from retpack_core.services import IntakeResult, IntakeService
 from retpack_ui.components.attachment_uploader import render_uploaders
@@ -11,6 +11,7 @@ from retpack_ui.components.detail import render_attachments, render_values, shor
 from retpack_ui.components.form_renderer import clear_form_state, render_form
 
 RESULT_KEY = "intake_result"
+ACCOUNT_KEY = "account_id"
 
 
 def render(container: Container, principal: Principal) -> None:
@@ -24,17 +25,17 @@ def render(container: Container, principal: Principal) -> None:
         _render_result(container, result)
         if st.button("Start another request", key="another"):
             st.session_state.pop(RESULT_KEY, None)
-            clear_form_state(spec)
+            clear_form_state(spec, extra_keys=(ACCOUNT_KEY,))
             st.rerun()
         return
 
-    account_field = next((f for f in spec.fields if f.ref_source == "my_accounts"), None)
+    account_field = spec.account_field
     account_id: str | None = None
     if account_field is not None:
         choices = intake.enum_choices(principal, account_id=None).get(account_field.name, ())
         labels = {c.value: c.label for c in choices}
         account_id = st.selectbox(
-            f"{account_field.label} *", [c.value for c in choices], index=None, format_func=lambda v: labels[v], key="account_id", placeholder="Select…"
+            f"{account_field.label} *", [c.value for c in choices], index=None, format_func=lambda v: labels[v], key=ACCOUNT_KEY, placeholder="Select…"
         )
 
     choices_all = intake.enum_choices(principal, account_id=account_id)
@@ -51,8 +52,8 @@ def render(container: Container, principal: Principal) -> None:
     except ValidationFailedError as exc:
         _render_errors(container, exc)
         return
-    except InvalidAttachmentError as exc:
-        st.error(f"Document rejected: {exc}")
+    except (InvalidAttachmentError, NotPermittedError) as exc:
+        st.error(f"Request not accepted: {exc}")
         return
     st.rerun()
 

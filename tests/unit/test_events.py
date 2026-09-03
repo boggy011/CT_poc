@@ -77,6 +77,7 @@ def test_attachment_added_factory_embeds_meta():
 
     meta = AttachmentMeta(
         submission_id=SID,
+        account_id="A1",
         doc_type="delivery_note",
         seq=1,
         original_filename="a.pdf",

@@ -11,7 +11,16 @@ MINIMAL = {
     "version": 1,
     "sections": [{"name": "shipment", "label": "Shipment"}],
     "fields": [
-        {"name": "container_no", "label": "Container number", "type": "string", "section": "shipment", "order": 10, "required": True, "pattern": r"^\d{10}$"},
+        {
+            "name": "container_no",
+            "label": "Container number",
+            "type": "string",
+            "section": "shipment",
+            "order": 10,
+            "required": True,
+            "pattern": r"^\d{10}$",
+            "max_length": 10,
+        },
     ],
 }
 
@@ -65,22 +74,22 @@ def test_unknown_section_rejected():
 
 def test_enum_requires_source():
     with pytest.raises(ConfigError, match="source"):
-        parse_form_spec(_with(type="enum", pattern=None))
+        parse_form_spec(_with(type="enum", pattern=None, max_length=None))
 
 
 def test_unknown_ref_source_rejected():
     with pytest.raises(ConfigError, match="ref source"):
-        parse_form_spec(_with(type="enum", pattern=None, source="ref:unicorns"))
+        parse_form_spec(_with(type="enum", pattern=None, max_length=None, source="ref:unicorns"))
 
 
 def test_static_source_must_have_options():
     with pytest.raises(ConfigError, match="static"):
-        parse_form_spec(_with(type="enum", pattern=None, source="static:"))
+        parse_form_spec(_with(type="enum", pattern=None, max_length=None, source="static:"))
 
 
 def test_pattern_only_on_string_types():
     with pytest.raises(ConfigError, match="pattern"):
-        parse_form_spec(_with(type="integer"))
+        parse_form_spec(_with(type="integer", max_length=None))
 
 
 def test_invalid_regex_rejected():
@@ -90,7 +99,42 @@ def test_invalid_regex_rejected():
 
 def test_min_max_only_on_numeric_types():
     with pytest.raises(ConfigError, match="min"):
-        parse_form_spec(_with(pattern=None, min=1))
+        parse_form_spec(_with(pattern=None, max_length=None, min=1))
+
+
+def test_pattern_requires_bounded_max_length():
+    with pytest.raises(ConfigError, match="max_length"):
+        parse_form_spec(_with(max_length=None))
+    with pytest.raises(ConfigError, match="max_length"):
+        parse_form_spec(_with(max_length=5000))
+
+
+@pytest.mark.parametrize(
+    "overrides,match",
+    [
+        ({"type": "integer", "pattern": None, "max_length": None, "min": 100, "max": 1}, "greater than max"),
+        ({"type": "integer", "pattern": None, "max_length": 5}, "max_length"),
+        ({"type": "integer", "pattern": None, "max_length": None, "scale": 2}, "scale"),
+        ({"type": "string", "pattern": None, "max_length": 5, "source": "static:a"}, "source"),
+        ({"type": "enum", "pattern": None, "max_length": None, "source": "csv:a,b"}, "static:"),
+        ({"type": "text", "pattern": None, "max_length": 100000}, "less than or equal"),
+        ({"type": "decimal", "pattern": None, "max_length": None, "scale": 11}, "less than or equal"),
+    ],
+)
+def test_config_guard_rails(overrides: dict, match: str):
+    with pytest.raises(ConfigError, match=match):
+        parse_form_spec(_with(**overrides))
+
+
+def test_duplicate_section_rejected():
+    data = {**MINIMAL, "sections": [MINIMAL["sections"][0], MINIMAL["sections"][0]]}
+    with pytest.raises(ConfigError, match="duplicate section"):
+        parse_form_spec(data)
+
+
+def test_account_field_is_discoverable():
+    assert load_form_spec(PLACEHOLDER).account_field is not None
+    assert parse_form_spec(MINIMAL).account_field is None
 
 
 def test_bad_field_name_rejected():

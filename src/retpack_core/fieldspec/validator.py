@@ -1,20 +1,28 @@
 """Server-side validation of submitted values against a ``FormSpec``.
 
 The portal enforces only mandatory-field and per-field format rules (FR-06).
-Returned values are JSON-safe primitives: str for string/text/enum/decimal,
-int for integer, ISO ``YYYY-MM-DD`` str for date.
+Returned values are JSON-safe primitives: str for string/text/enum, str with a
+fixed number of decimals for decimal, int for integer, ISO ``YYYY-MM-DD`` str
+for date.
 """
 
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+
+import regex
 
 from retpack_core.fieldspec.schema import FieldSpec, FieldType, FormSpec
 
 JsonValue = str | int
+
+REGEX_TIMEOUT_S = 0.05
+"""Upper bound per pattern match; a config-supplied catastrophic regex cannot stall the app."""
+MAX_NUMERIC_CHARS = 40
+_INTEGER = regex.compile(r"[+-]?\d{1,39}")
+_DECIMAL = regex.compile(r"[+-]?\d{1,30}(\.\d{1,10})?")
 
 
 @dataclass(frozen=True)
@@ -62,24 +70,25 @@ def validate_values(
             errors[name] = ["unknown field"]
 
     for f in spec.fields:
-        value, message = validate_field(f, values.get(f.name), options=options.get(f.name, ()))
-        if message is not None:
-            errors[f.name] = [message]
+        value, messages = validate_field(f, values.get(f.name), options=options.get(f.name, ()))
+        if messages:
+            errors[f.name] = messages
         elif value is not None:
             cleaned[f.name] = value
 
     return ValidationResult(values=cleaned, errors=errors)
 
 
-def validate_field(f: FieldSpec, raw: Any, *, options: Sequence[str] = ()) -> tuple[JsonValue | None, str | None]:
+def validate_field(f: FieldSpec, raw: Any, *, options: Sequence[str] = ()) -> tuple[JsonValue | None, list[str]]:
     """Validate one raw value against one field.
 
     Returns:
-        ``(value, None)`` on success where ``value`` is the coerced value, or
-        ``None`` for a blank optional field; ``(None, message)`` on failure.
+        ``(value, [])`` on success where ``value`` is the coerced value, or
+        ``None`` for a blank optional field; ``(None, messages)`` on failure
+        with every violated rule listed.
     """
     if _is_blank(raw):
-        return (None, "required") if f.required else (None, None)
+        return (None, ["required"]) if f.required else (None, [])
     return _coerce(f, raw, options)
 
 
@@ -87,7 +96,7 @@ def _is_blank(raw: Any) -> bool:
     return raw is None or (isinstance(raw, str) and not raw.strip())
 
 
-def _coerce(f: FieldSpec, raw: Any, allowed: Sequence[str]) -> tuple[JsonValue | None, str | None]:
+def _coerce(f: FieldSpec, raw: Any, allowed: Sequence[str]) -> tuple[JsonValue | None, list[str]]:
     if f.type in (FieldType.STRING, FieldType.TEXT):
         return _coerce_text(f, raw)
     if f.type is FieldType.INTEGER:
@@ -99,38 +108,56 @@ def _coerce(f: FieldSpec, raw: Any, allowed: Sequence[str]) -> tuple[JsonValue |
     return _coerce_enum(f, raw, allowed)
 
 
-def _coerce_text(f: FieldSpec, raw: Any) -> tuple[str | None, str | None]:
+def _coerce_text(f: FieldSpec, raw: Any) -> tuple[str | None, list[str]]:
     text = str(raw).strip()
-    if f.max_length is not None and len(text) > f.max_length:
-        return None, f"must be at most {f.max_length} characters"
-    if f.pattern is not None and re.fullmatch(f.pattern, text) is None:
-        return None, f"must match {f.pattern}"
-    return text, None
+    messages = []
+    if len(text) > f.effective_max_length:
+        messages.append(f"must be at most {f.effective_max_length} characters")
+    if f.pattern is not None and not _matches(f.pattern, text[: f.effective_max_length]):
+        messages.append(f"must match {f.pattern}")
+    return (None, messages) if messages else (text, [])
 
 
-def _coerce_integer(f: FieldSpec, raw: Any) -> tuple[int | None, str | None]:
+def _matches(pattern: str, text: str) -> bool:
+    try:
+        return regex.fullmatch(pattern, text, timeout=REGEX_TIMEOUT_S) is not None
+    except TimeoutError:
+        return False
+
+
+def _coerce_integer(f: FieldSpec, raw: Any) -> tuple[int | None, list[str]]:
     if isinstance(raw, bool):
-        return None, "must be an integer"
+        return None, ["must be an integer"]
     if isinstance(raw, int):
         number = raw
     else:
         text = str(raw).strip()
-        if not re.fullmatch(r"[+-]?\d+", text):
-            return None, "must be an integer"
+        if len(text) > MAX_NUMERIC_CHARS or _INTEGER.fullmatch(text) is None:
+            return None, ["must be an integer"]
         number = int(text)
     message = _range_error(f, Decimal(number))
-    return (None, message) if message else (number, None)
+    return (None, [message]) if message else (number, [])
 
 
-def _coerce_decimal(f: FieldSpec, raw: Any) -> tuple[str | None, str | None]:
+def _coerce_decimal(f: FieldSpec, raw: Any) -> tuple[str | None, list[str]]:
+    if isinstance(raw, bool):
+        return None, ["must be a number"]
+    text = repr(raw) if isinstance(raw, float) else str(raw).strip()
     try:
-        number = Decimal(str(raw).strip())
-    except InvalidOperation:
-        return None, "must be a number"
+        number = Decimal(text) if isinstance(raw, float) else _parse_decimal_text(text)
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return None, ["must be a number"]
     if not number.is_finite():
-        return None, "must be a number"
-    message = _range_error(f, number)
-    return (None, message) if message else (str(number), None)
+        return None, ["must be a number"]
+    quantised = number.quantize(Decimal(1).scaleb(-f.effective_scale))
+    message = _range_error(f, quantised)
+    return (None, [message]) if message else (format(quantised, "f"), [])
+
+
+def _parse_decimal_text(text: str) -> Decimal:
+    if len(text) > MAX_NUMERIC_CHARS or _DECIMAL.fullmatch(text) is None:
+        raise ValueError(text)
+    return Decimal(text)
 
 
 def _range_error(f: FieldSpec, number: Decimal) -> str | None:
@@ -141,18 +168,20 @@ def _range_error(f: FieldSpec, number: Decimal) -> str | None:
     return None
 
 
-def _coerce_date(raw: Any) -> tuple[str | None, str | None]:
+def _coerce_date(raw: Any) -> tuple[str | None, list[str]]:
+    if isinstance(raw, datetime):
+        return raw.date().isoformat(), []
     if isinstance(raw, date):
-        return raw.isoformat(), None
+        return raw.isoformat(), []
     try:
-        return date.fromisoformat(str(raw).strip()).isoformat(), None
+        return date.fromisoformat(str(raw).strip()).isoformat(), []
     except ValueError:
-        return None, "must be a date (YYYY-MM-DD)"
+        return None, ["must be a date (YYYY-MM-DD)"]
 
 
-def _coerce_enum(f: FieldSpec, raw: Any, allowed: Sequence[str]) -> tuple[str | None, str | None]:
+def _coerce_enum(f: FieldSpec, raw: Any, allowed: Sequence[str]) -> tuple[str | None, list[str]]:
     text = str(raw).strip()
     choices = f.static_options if f.static_options else tuple(allowed)
     if text not in choices:
-        return None, "must be one of the offered options"
-    return text, None
+        return None, ["must be one of the offered options"]
+    return text, []

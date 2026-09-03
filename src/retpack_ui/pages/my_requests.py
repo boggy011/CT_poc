@@ -46,7 +46,7 @@ def render(container: Container, principal: Principal) -> None:
 
 def _render_balances(container: Container, principal: Principal, query: QueryService) -> None:
     st.subheader("Keg balance")
-    names = {a.account_id: a.name for a in container.ports.reference.my_accounts(principal)}
+    names = {a.account_id: a.name for a in query.accounts(principal)}
     balances = query.keg_balances(principal)
     if not balances:
         st.caption("No balance available yet.")

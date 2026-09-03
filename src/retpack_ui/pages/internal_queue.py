@@ -1,15 +1,16 @@
 """Internal screen: request queue, overwrite, validate."""
 
+from collections.abc import Callable
 from typing import Any
 
 import streamlit as st
 
 from retpack_adapters.factory import Container
-from retpack_core.errors import ConcurrencyConflictError, NotFoundError, StateError, ValidationFailedError
+from retpack_core.errors import ConcurrencyConflictError, NotFoundError, NotPermittedError, StateError, ValidationFailedError
 from retpack_core.fold import Submission
 from retpack_core.models import Status
 from retpack_core.principal import Principal
-from retpack_core.services import QueryService, ReviewService, enum_choices
+from retpack_core.services import QueryService, ReviewService
 from retpack_ui.components.detail import fmt_time, render_attachments, render_audit, render_outcome, render_values, short_ref
 from retpack_ui.components.form_renderer import render_field
 
@@ -17,7 +18,12 @@ RESULT_KEY = "queue_result"
 FLASH_KEY = "queue_flash"
 SEEN_KEY = "queue_seen"
 """(submission_id, seq) as last rendered: actions use the version the user saw, not a fresh read."""
-STATUS_FILTERS = ["SUBMITTED", "VALIDATED", "CPI_PENDING", "CPI_DONE", "CPI_FAILED", "All"]
+NEXT_STATUS_KEY = "queue_status_next"
+"""Status filter to apply on the next run; widget state cannot be written after the widget is drawn."""
+DOWNLOAD_KEY = "queue_download"
+"""(submission_id, seq, filename, bytes) for at most one prepared download per session."""
+STATUS_FILTERS = [*(s.value for s in Status), "All"]
+_FLASH = {"success": st.success, "error": st.error, "warning": st.warning, "info": st.info}
 
 
 def render(container: Container, principal: Principal) -> None:
@@ -26,6 +32,9 @@ def render(container: Container, principal: Principal) -> None:
     query = QueryService(container.ports)
     review = ReviewService(container.ports, container.spec)
     _flash()
+    next_status = st.session_state.pop(NEXT_STATUS_KEY, None)
+    if next_status is not None:
+        st.session_state["queue_status"] = next_status
 
     chosen = st.selectbox("Status", STATUS_FILTERS, index=0, key="queue_status")
     subs = query.list_requests(principal, status=None if chosen == "All" else Status(chosen))
@@ -88,23 +97,30 @@ def _render_detail(container: Container, principal: Principal, query: QueryServi
     render_audit(sub, container.spec)
     render_attachments(sub)
     _render_downloads(query, principal, sub)
-    if sub.status is Status.SUBMITTED:
+    if sub.status in {Status.SUBMITTED, Status.CPI_FAILED}:
         _render_actions(container, principal, review, sub, expected_seq)
     st.session_state[SEEN_KEY] = (sub.submission_id, sub.seq)
 
 
 def _render_downloads(query: QueryService, principal: Principal, sub: Submission) -> None:
+    """Two-step download so bytes are read once, on request, and at most one file is resident."""
+    prepared = st.session_state.get(DOWNLOAD_KEY)
     for m in sub.attachments:
-        with query.open_attachment(principal, sub.submission_id, seq=m.seq) as f:
-            st.download_button(f"Download {m.original_filename}", data=f.read(), file_name=m.original_filename, mime="application/pdf", key=f"dl_{m.seq}")
+        col_prep, col_dl = st.columns([1, 3])
+        if col_prep.button(f"Prepare {m.original_filename}", key=f"prep_{m.seq}"):
+            with query.open_attachment(principal, sub.submission_id, seq=m.seq) as f:
+                st.session_state[DOWNLOAD_KEY] = (sub.submission_id, m.seq, m.original_filename, f.read())
+            st.rerun()
+        if prepared and prepared[0] == sub.submission_id and prepared[1] == m.seq:
+            col_dl.download_button(f"Download {prepared[2]}", data=prepared[3], file_name=prepared[2], mime="application/pdf", key=f"dl_{m.seq}")
 
 
 def _render_actions(container: Container, principal: Principal, review: ReviewService, sub: Submission, expected_seq: int) -> None:
     st.subheader("Correct a field")
     labels = {f.name: f.label for f in container.spec.fields}
-    names = list(labels)
+    names = list(review.correctable_fields())
     field_name = str(st.selectbox("Field", names, format_func=lambda n: labels[n], key="ow_field"))
-    choices = enum_choices(container.ports.reference, container.spec, principal, account_id=sub.account_id)
+    choices = review.enum_choices(principal, account_id=sub.account_id)
     new_value = render_field(container.spec.field(field_name), choices, key_prefix="ow_")
     col_ow, col_val = st.columns(2)
     if col_ow.button("Overwrite", key="overwrite"):
@@ -113,18 +129,20 @@ def _render_actions(container: Container, principal: Principal, review: ReviewSe
             f"{labels[field_name]} updated.",
         )
     if col_val.button("Validate and release to SAP", key="validate", type="primary"):
-        _act(lambda: review.validate(principal, sub.submission_id, expected_seq=expected_seq), "Request validated and queued for SAP.")
+        _act(lambda: review.validate(principal, sub.submission_id, expected_seq=expected_seq), "Request validated and queued for SAP.", keep_visible=True)
 
 
-def _act(action: Any, success: str) -> None:
+def _act(action: Callable[[], Submission], success: str, *, keep_visible: bool = False) -> None:
     try:
         st.session_state[RESULT_KEY] = action()
         st.session_state[FLASH_KEY] = ("success", success)
+        if keep_visible:
+            st.session_state[NEXT_STATUS_KEY] = "All"
     except ValidationFailedError as exc:
         st.session_state[FLASH_KEY] = ("error", "; ".join(f"{k}: {', '.join(v)}" for k, v in exc.errors.items()))
     except ConcurrencyConflictError:
         st.session_state[FLASH_KEY] = ("warning", "This request was changed by someone else. Review the latest version and try again.")
-    except StateError as exc:
+    except (StateError, NotPermittedError, NotFoundError) as exc:
         st.session_state[FLASH_KEY] = ("info", str(exc))
     st.rerun()
 
@@ -133,4 +151,4 @@ def _flash() -> None:
     flash = st.session_state.pop(FLASH_KEY, None)
     if flash:
         kind, message = flash
-        getattr(st, kind)(message)
+        _FLASH.get(kind, st.info)(message)

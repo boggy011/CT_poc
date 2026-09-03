@@ -2,48 +2,54 @@
 
 import re
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import BinaryIO
 
+from retpack_core.attachments import AttachmentPolicy
 from retpack_core.errors import InvalidAttachmentError, NotFoundError
 from retpack_core.models import AttachmentMeta
 from retpack_core.pdf import copy_and_hash, inspect_pdf
 from retpack_core.principal import Principal
 
 _SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9_\-]+$")
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\x00-\x1f\x7f"\\/]')
+MAX_FILENAME = 255
 
 
 class LocalAttachmentStore:
-    """Writes ``<root>/<submission_id>/<doc_type>_<seq>.pdf`` via a ``.part`` file."""
+    """Writes ``<root>/<account_id>/<submission_id>/<doc_type>_<seq>.pdf`` via a ``.part`` file."""
 
-    def __init__(self, root: Path, *, max_bytes: int) -> None:
+    def __init__(self, root: Path, *, policy: AttachmentPolicy) -> None:
         self._root = Path(root)
         self._root.mkdir(parents=True, exist_ok=True)
-        self._max_bytes = max_bytes
+        self._policy = policy
 
-    def put(self, principal: Principal, submission_id: str, *, doc_type: str, seq: int, filename: str, stream: BinaryIO) -> AttachmentMeta:
+    def put(self, principal: Principal, submission_id: str, *, account_id: str, doc_type: str, seq: int, filename: str, stream: BinaryIO) -> AttachmentMeta:
         """See ``AttachmentStore.put``."""
-        _check_segment(submission_id)
-        _check_segment(doc_type)
-        target_dir = self._root / submission_id
+        for segment in (account_id, submission_id, doc_type):
+            _check_segment(segment)
+        self._require_account(principal, account_id)
+        target_dir = self._root / account_id / submission_id
         target_dir.mkdir(parents=True, exist_ok=True)
         final = target_dir / f"{doc_type}_{seq}.pdf"
         part = final.with_name(final.name + ".part")
         try:
             with part.open("wb") as dst:
-                sha256, size = copy_and_hash(stream, dst, max_bytes=self._max_bytes)
-            with part.open("rb") as src:
-                info = inspect_pdf(src)
-        except InvalidAttachmentError:
+                sha256, size = copy_and_hash(stream, dst, max_bytes=self._policy.max_size_bytes)
+            info = inspect_pdf(part, timeout_s=self._policy.inspect_timeout_s)
+            if info.page_count > self._policy.max_pages:
+                raise InvalidAttachmentError(f"PDF has {info.page_count} pages; the limit is {self._policy.max_pages}")
+            part.replace(final)
+        except BaseException:
             part.unlink(missing_ok=True)
-            _rmdir_if_empty(target_dir)
+            _prune_empty(target_dir, self._root)
             raise
-        part.replace(final)
         return AttachmentMeta(
             submission_id=submission_id,
+            account_id=account_id,
             doc_type=doc_type,
             seq=seq,
-            original_filename=filename,
+            original_filename=safe_filename(filename),
             storage_path=str(final),
             sha256=sha256,
             size_bytes=size,
@@ -54,11 +60,39 @@ class LocalAttachmentStore:
         )
 
     def open(self, principal: Principal, meta: AttachmentMeta) -> BinaryIO:
-        """See ``AttachmentStore.open``. Refuses paths outside the store root."""
-        path = Path(meta.storage_path).resolve()
-        if not path.is_relative_to(self._root.resolve()) or not path.is_file():
+        """See ``AttachmentStore.open``. Enforces account scope and store-root containment."""
+        path = self._resolve(principal, meta)
+        if not path.is_file():
             raise NotFoundError(f"attachment {meta.doc_type}/{meta.seq} not found")
         return path.open("rb")
+
+    def delete(self, principal: Principal, meta: AttachmentMeta) -> None:
+        """See ``AttachmentStore.delete``."""
+        path = self._resolve(principal, meta)
+        path.unlink(missing_ok=True)
+        _prune_empty(path.parent, self._root)
+
+    def _resolve(self, principal: Principal, meta: AttachmentMeta) -> Path:
+        self._require_account(principal, meta.account_id)
+        path = Path(meta.storage_path).resolve()
+        expected_dir = (self._root / meta.account_id / meta.submission_id).resolve()
+        if not path.is_relative_to(expected_dir):
+            raise NotFoundError(f"attachment {meta.doc_type}/{meta.seq} not found")
+        return path
+
+    @staticmethod
+    def _require_account(principal: Principal, account_id: str) -> None:
+        if principal.is_scoped and account_id not in principal.account_ids:
+            raise NotFoundError("attachment not found")
+
+
+def safe_filename(filename: str) -> str:
+    """Strip directories, control characters and quotes; cap the length; never empty."""
+    name = PurePosixPath(PureWindowsPath(filename).name).name
+    name = _UNSAFE_FILENAME_CHARS.sub("_", name).strip(" .")
+    if not name:
+        name = "document.pdf"
+    return name[:MAX_FILENAME]
 
 
 def _check_segment(value: str) -> None:
@@ -66,8 +100,12 @@ def _check_segment(value: str) -> None:
         raise ValueError(f"unsafe path segment {value!r}")
 
 
-def _rmdir_if_empty(path: Path) -> None:
-    try:
-        path.rmdir()
-    except OSError:
-        pass
+def _prune_empty(path: Path, stop: Path) -> None:
+    stop = stop.resolve()
+    current = path.resolve()
+    while current != stop and current.is_relative_to(stop):
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent

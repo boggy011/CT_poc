@@ -4,7 +4,7 @@ from typing import BinaryIO
 
 from retpack_core.errors import NotFoundError
 from retpack_core.fold import Submission
-from retpack_core.models import KegBalance, Status
+from retpack_core.models import Account, KegBalance, Status
 from retpack_core.ports import Ports
 from retpack_core.principal import Principal
 
@@ -27,10 +27,14 @@ class QueryService:
         """
         return self._ports.submissions.get_submission(principal, submission_id)
 
+    def accounts(self, principal: Principal) -> tuple[Account, ...]:
+        """Accounts the principal may see."""
+        return self._ports.reference.my_accounts(principal)
+
     def keg_balances(self, principal: Principal) -> tuple[KegBalance, ...]:
         """Balances for every account the principal may see, where computed."""
         out = []
-        for account in self._ports.reference.my_accounts(principal):
+        for account in self.accounts(principal):
             balance = self._ports.reference.keg_balance(principal, account.account_id)
             if balance is not None:
                 out.append(balance)
@@ -38,6 +42,8 @@ class QueryService:
 
     def open_attachment(self, principal: Principal, submission_id: str, *, seq: int) -> BinaryIO:
         """Open one stored PDF after confirming the principal may see its submission.
+
+        The store applies its own account-scope check as a second layer.
 
         Raises:
             NotFoundError: If the submission or attachment is not visible.

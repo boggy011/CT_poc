@@ -28,6 +28,8 @@ class AttachmentPolicy(BaseModel):
 
     version: int
     max_size_mb: int = Field(ge=1)
+    max_pages: int = Field(default=500, ge=1)
+    inspect_timeout_s: float = Field(default=15.0, gt=0)
     doc_types: tuple[DocTypeSpec, ...]
 
     @model_validator(mode="after")

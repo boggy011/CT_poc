@@ -110,6 +110,11 @@ def test_list_newest_first_with_status_filter_and_limit(repo: SubmissionReposito
     assert [s.submission_id for s in repo.list_submissions(CUSTOMER_A, limit=1)] == [newest]
 
 
+def test_limit_must_be_positive(repo: SubmissionRepository):
+    with pytest.raises(ValueError):
+        repo.list_submissions(INTERNAL, limit=0)
+
+
 def test_list_empty_when_nothing_visible(repo: SubmissionRepository):
     assert repo.list_submissions(CUSTOMER_A) == ()
 

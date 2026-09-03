@@ -14,7 +14,7 @@ def test_settings_from_env_defaults():
     assert s.field_spec_path == Path("config/fields/placeholder.yaml")
     assert s.attachment_policy_path == Path("config/attachments.yaml")
     assert s.mock_data_dir == Path("config/mock")
-    assert s.seed_demo is True
+    assert s.seed_demo is False
 
 
 def test_settings_from_env_overrides(tmp_path: Path):
@@ -23,11 +23,11 @@ def test_settings_from_env_overrides(tmp_path: Path):
         "RETPACK_FIELD_SPEC": str(tmp_path / "f.yaml"),
         "RETPACK_ATTACHMENT_DIR": str(tmp_path / "a"),
         "RETPACK_MOCK_USER": "ops@abi.com",
-        "RETPACK_MOCK_SEED": "0",
+        "RETPACK_MOCK_SEED": "1",
     }
     s = Settings.from_env(env)
     assert s.backend == "delta" and s.field_spec_path == tmp_path / "f.yaml" and s.attachment_dir == tmp_path / "a"
-    assert s.mock_user == "ops@abi.com" and s.seed_demo is False
+    assert s.mock_user == "ops@abi.com" and s.seed_demo is True
 
 
 def test_unknown_backend_rejected():
@@ -36,8 +36,9 @@ def test_unknown_backend_rejected():
 
 
 def test_build_mock_container_with_demo_seed(tmp_path: Path):
-    c = build_container(Settings.from_env({"RETPACK_ATTACHMENT_DIR": str(tmp_path)}))
+    c = build_container(Settings.from_env({"RETPACK_ATTACHMENT_DIR": str(tmp_path), "RETPACK_MOCK_SEED": "1"}))
     assert isinstance(c, Container) and c.backend == "mock"
+    assert "anna@northsea-distribution.example" in c.demo_users
     internal = Principal(email="ops@abi.com", account_ids=frozenset(), role=Role.INTERNAL)
     subs = c.ports.submissions.list_submissions(internal)
     assert len(subs) >= 8
@@ -58,7 +59,7 @@ def test_build_mock_container_with_demo_seed(tmp_path: Path):
 
 
 def test_build_mock_container_without_seed(tmp_path: Path):
-    c = build_container(Settings.from_env({"RETPACK_ATTACHMENT_DIR": str(tmp_path), "RETPACK_MOCK_SEED": "0"}))
+    c = build_container(Settings.from_env({"RETPACK_ATTACHMENT_DIR": str(tmp_path)}))
     internal = Principal(email="ops@abi.com", account_ids=frozenset(), role=Role.INTERNAL)
     assert c.ports.submissions.list_submissions(internal) == ()
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from retpack_adapters.attachments.local import LocalAttachmentStore
 from retpack_adapters.identity.mock import MockIdentityProvider
-from retpack_adapters.mock.fixtures import load_directory, load_reference
+from retpack_adapters.mock.fixtures import list_user_emails, load_directory, load_reference
 from retpack_adapters.mock.seed import seed_demo
 from retpack_adapters.mock.submissions import InMemorySubmissionRepository
 from retpack_core.attachments import AttachmentPolicy, load_attachment_policy
@@ -32,7 +32,7 @@ class Settings:
     mock_data_dir: Path = Path("config/mock")
     attachment_dir: Path = Path(".retpack_attachments")
     mock_user: str | None = None
-    seed_demo: bool = True
+    seed_demo: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Settings":
@@ -51,7 +51,7 @@ class Settings:
             mock_data_dir=Path(env.get("RETPACK_MOCK_DATA_DIR", str(cls.mock_data_dir))),
             attachment_dir=Path(env.get("RETPACK_ATTACHMENT_DIR", str(cls.attachment_dir))),
             mock_user=env.get("RETPACK_MOCK_USER") or None,
-            seed_demo=env.get("RETPACK_MOCK_SEED", "1").strip().lower() in _TRUE,
+            seed_demo=env.get("RETPACK_MOCK_SEED", "0").strip().lower() in _TRUE,
         )
 
 
@@ -65,6 +65,8 @@ class Container:
     identity: IdentityProvider
     spec: FormSpec
     policy: AttachmentPolicy
+    demo_users: tuple[str, ...] = ()
+    """Selectable identities for the demo switcher. Empty for every non-mock backend."""
 
 
 def build_container(settings: Settings) -> Container:
@@ -78,10 +80,18 @@ def build_container(settings: Settings) -> Container:
     policy = load_attachment_policy(settings.attachment_policy_path)
     if settings.backend != "mock":
         raise NotImplementedError(f"backend {settings.backend!r} is wired in Phase B")
-    store = LocalAttachmentStore(settings.attachment_dir, max_bytes=policy.max_size_bytes)
+    store = LocalAttachmentStore(settings.attachment_dir, policy=policy)
     repo = InMemorySubmissionRepository()
     if settings.seed_demo:
         seed_demo(repo, store, settings.mock_data_dir)
     ports = Ports(submissions=repo, reference=load_reference(settings.mock_data_dir), attachments=store)
     identity = MockIdentityProvider(load_directory(settings.mock_data_dir), default_email=settings.mock_user)
-    return Container(backend="mock", settings=settings, ports=ports, identity=identity, spec=spec, policy=policy)
+    return Container(
+        backend="mock",
+        settings=settings,
+        ports=ports,
+        identity=identity,
+        spec=spec,
+        policy=policy,
+        demo_users=list_user_emails(settings.mock_data_dir),
+    )

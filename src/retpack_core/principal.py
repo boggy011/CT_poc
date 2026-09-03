@@ -5,9 +5,13 @@ and is the first argument of every repository method. It is never built from
 client-supplied input.
 """
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
+
+_EMAIL = re.compile(r"^[a-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)+$")
+MAX_EMAIL_LENGTH = 254
 
 
 class Role(StrEnum):
@@ -37,8 +41,8 @@ class Principal:
     def __post_init__(self) -> None:
         """Normalise email and coerce account ids to a frozenset."""
         email = self.email.strip().lower()
-        if "@" not in email or email.startswith("@") or email.endswith("@"):
-            raise ValueError("Principal email must be a non-empty address")
+        if len(email) > MAX_EMAIL_LENGTH or _EMAIL.match(email) is None:
+            raise ValueError("Principal email must be a valid address")
         object.__setattr__(self, "email", email)
         object.__setattr__(self, "account_ids", _to_frozenset(self.account_ids))
 

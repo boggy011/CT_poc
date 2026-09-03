@@ -39,6 +39,21 @@ def test_mixed_submission_ids_rejected():
         fold([submitted(), other])
 
 
+def test_mixed_account_ids_rejected():
+    with pytest.raises(ValueError, match="account_id"):
+        fold([submitted(), ev.validated(SID, "B1", actor="o@abi.com", seq=2, at=t(1))])
+
+
+def test_duplicate_seq_reported_as_duplicate():
+    with pytest.raises(ValueError, match="duplicate"):
+        fold([submitted(), ev.validated(SID, "A1", actor="o@abi.com", seq=2, at=t(1)), ev.validated(SID, "A1", actor="o@abi.com", seq=2, at=t(2))])
+
+
+def test_overwrite_to_none_clears_value_and_keeps_original():
+    s = fold([submitted(), ev.field_overwritten(SID, "A1", actor="o@abi.com", seq=2, field="bl_no", prior="BL-1", new=None, at=t(1))])
+    assert "bl_no" not in s.values and s.original_values["bl_no"] == "BL-1" and s.overwrites[0].new is None
+
+
 def test_submitted_only():
     s = fold([submitted()])
     assert s.status is Status.SUBMITTED
@@ -114,6 +129,7 @@ def test_credit_note_recorded_does_not_change_status():
 def test_attachment_added():
     meta = AttachmentMeta(
         submission_id=SID,
+        account_id="A1",
         doc_type="delivery_note",
         seq=1,
         original_filename="a.pdf",
@@ -129,11 +145,12 @@ def test_attachment_added():
     assert s.attachments == (meta,)
 
 
-def test_fold_does_not_mutate_input():
+def test_fold_does_not_mutate_input_payloads():
     log = [submitted(), ev.field_overwritten(SID, "A1", actor="o@abi.com", seq=2, field="qty", prior=10, new=12, at=t(1))]
-    before = [e.model_copy() for e in log]
-    fold(log)
-    assert log == before
+    s = fold(log)
+    s.values["qty"] = 999
+    assert log[0].payload["values"]["qty"] == 10
+    assert fold(log).values["qty"] == 12
 
 
 def test_unsorted_input_is_sorted_by_seq():

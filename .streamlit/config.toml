@@ -1,0 +1,11 @@
+# Keep in sync with config/attachments.yaml (max_size_mb); tests/unit/test_streamlit_config.py enforces it.
+[server]
+maxUploadSize = 25
+maxMessageSize = 50
+headless = true
+
+[client]
+showErrorDetails = "none"
+
+[browser]
+gatherUsageStats = false

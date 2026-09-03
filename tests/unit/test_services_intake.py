@@ -61,6 +61,54 @@ def test_submit_for_foreign_account_is_validation_error(intake: IntakeService):
     assert "account_id" in exc.value.errors
 
 
+def test_account_ownership_is_enforced_even_when_spec_makes_it_free_text(ports, policy, store):
+    """FR-02 must not depend on the YAML declaring account_id as a scoped enum."""
+    from retpack_core.fieldspec import parse_form_spec
+
+    loose = parse_form_spec(
+        {
+            "version": 1,
+            "sections": [{"name": "s", "label": "S"}],
+            "fields": [{"name": "account_id", "label": "Account", "type": "enum", "section": "s", "order": 1, "required": True, "source": "ref:my_accounts"}],
+        }
+    )
+    # Bypass the validator's option check by handing the service pre-approved values through a spec without enum options.
+    service = IntakeService(ports, loose, policy)
+    with pytest.raises((ValidationFailedError, NotPermittedError)):
+        service.submit(CUSTOMER_B, {"account_id": "A1"}, [])
+    assert store.puts == []
+
+
+def test_spec_without_account_field_cannot_submit(ports, policy):
+    from retpack_core.fieldspec import parse_form_spec
+
+    spec = parse_form_spec(
+        {"version": 1, "sections": [{"name": "s", "label": "S"}], "fields": [{"name": "x", "label": "X", "type": "string", "section": "s", "order": 1}]}
+    )
+    with pytest.raises(NotPermittedError):
+        IntakeService(ports, spec, policy).submit(CUSTOMER_A, {"x": "1"}, [])
+
+
+def test_failed_append_removes_stored_attachments(ports, spec, policy, store, monkeypatch):
+    from retpack_core.errors import ConcurrencyConflictError
+
+    def boom(*args, **kwargs):
+        raise ConcurrencyConflictError("simulated")
+
+    monkeypatch.setattr(ports.submissions, "append_event", boom)
+    service = IntakeService(ports, spec, policy)
+    with pytest.raises(ConcurrencyConflictError):
+        service.submit(CUSTOMER_A, VALID_VALUES, [pdf("a.pdf")])
+    assert len(store.puts) == 1 and len(store.deleted) == 1 and store.blobs == {}
+
+
+def test_non_pdf_bytes_rejected_before_storing(intake: IntakeService, store):
+    with pytest.raises(ValidationFailedError) as exc:
+        intake.submit(CUSTOMER_A, VALID_VALUES, [pdf("x.pdf", b"GIF89a....")])
+    assert exc.value.errors["attachments.delivery_note"] == ["x.pdf is not a PDF"]
+    assert store.puts == []
+
+
 def test_submit_with_sku_of_other_account_rejected(intake: IntakeService):
     with pytest.raises(ValidationFailedError) as exc:
         intake.submit(CUSTOMER_A, {**VALID_VALUES, "sku_code": "KEG20"}, [pdf()])

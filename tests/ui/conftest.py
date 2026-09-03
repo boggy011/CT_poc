@@ -18,6 +18,7 @@ OPS = "ops1@abi.example"
 def app_for(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[str], AppTest]:
     monkeypatch.setenv("RETPACK_SUBMISSION_BACKEND", "mock")
     monkeypatch.setenv("RETPACK_ATTACHMENT_DIR", str(tmp_path / "att"))
+    monkeypatch.setenv("RETPACK_MOCK_SEED", "1")
     state.reset_container()
 
     def _make(user: str) -> AppTest:

@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml>=6.0",
     "uuid-utils>=0.9",
     "pypdf>=4.2",
+    "regex>=2024.5",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,9 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-PyYAML",
+    "types-regex>=2026.9.3.20260903",
+    "pip-audit>=2.10.1",
+    "bandit>=1.9.4",
 ]
 
 [build-system]
@@ -86,3 +90,7 @@ branch = true
 fail_under = 80
 show_missing = true
 skip_empty = true
+
+[tool.bandit]
+# B404/B603: the PDF sandbox deliberately runs a fixed, argument-list subprocess of our own module.
+skips = ["B404", "B603"]

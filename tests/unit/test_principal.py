@@ -22,7 +22,7 @@ def test_email_is_normalised():
     assert p.email == "a@x.com"
 
 
-@pytest.mark.parametrize("email", ["", "   ", "not-an-email"])
+@pytest.mark.parametrize("email", ["", "   ", "not-an-email", "x@y", "a@b.c'; DROP", "a b@x.com", "@x.com", "a@", "a@x.com" + "x" * 250])
 def test_invalid_email_rejected(email: str):
     with pytest.raises(ValueError):
         Principal(email=email, account_ids=frozenset(), role=Role.CUSTOMER)

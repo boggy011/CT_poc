@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test test-cov contract-delta contract-lakebase run-mock check
+.PHONY: install lint format typecheck test test-cov contract-delta contract-lakebase run-mock security check
 
 install:
 	uv sync --all-extras
@@ -27,6 +27,10 @@ contract-lakebase:
 	RETPACK_TEST_LAKEBASE=1 uv run pytest tests/contract -k lakebase
 
 run-mock:
-	RETPACK_SUBMISSION_BACKEND=mock uv run streamlit run src/retpack_ui/app.py
+	RETPACK_SUBMISSION_BACKEND=mock RETPACK_MOCK_SEED=1 uv run streamlit run src/retpack_ui/app.py
 
-check: lint typecheck test-cov
+security:
+	uv run bandit -q -r src -c pyproject.toml
+	uv run pip-audit --skip-editable
+
+check: lint typecheck test-cov security

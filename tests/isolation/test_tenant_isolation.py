@@ -39,7 +39,7 @@ def test_cross_tenant_error_is_indistinguishable_from_missing(repo: SubmissionRe
         repo.get_events(CUSTOMER_B, seeded["a1"])
     with pytest.raises(NotFoundError) as missing:
         repo.get_events(CUSTOMER_B, new_id())
-    assert type(foreign.value) is type(missing.value)
+    assert str(foreign.value).replace(seeded["a1"], "<id>") == str(missing.value).replace(missing.value.args[0], "<id>")
     assert "A1" not in str(foreign.value) and "anna" not in str(foreign.value)
 
 
@@ -48,6 +48,20 @@ def test_append_to_other_tenant_is_not_found(repo: SubmissionRepository, seeded:
     with pytest.raises(NotFoundError):
         repo.append_event(CUSTOMER_B, seeded["a1"], 1, ev)
     assert len(repo.get_events(INTERNAL, seeded["a1"])) == 1
+
+
+def test_event_account_must_match_submission(repo: SubmissionRepository, seeded: dict[str, str]):
+    """The denormalised account_id is what UC row filters key on; it must never diverge within a log."""
+    ev = events.field_overwritten(seeded["a1"], "B1", actor=CUSTOMER_A.email, seq=2, field="quantity", prior=1, new=2)
+    with pytest.raises(ValueError):
+        repo.append_event(CUSTOMER_A, seeded["a1"], 1, ev)
+    assert {e.account_id for e in repo.get_events(INTERNAL, seeded["a1"])} == {"A1"}
+
+
+def test_second_submitted_event_rejected(repo: SubmissionRepository, seeded: dict[str, str]):
+    ev = events.submitted(seeded["a1"], "A1", actor=CUSTOMER_A.email, values={}, seq=2)
+    with pytest.raises(ValueError):
+        repo.append_event(CUSTOMER_A, seeded["a1"], 1, ev)
 
 
 def test_customer_cannot_create_for_foreign_account(repo: SubmissionRepository):
@@ -92,6 +106,21 @@ def test_reference_skus_and_balance_for_foreign_account_not_found(reference: Ref
     with pytest.raises(NotFoundError):
         reference.keg_balance(CUSTOMER_B, "A1")
     assert reference.keg_balance(CUSTOMER_B, "B1") is not None
+
+
+def test_attachment_store_scopes_by_account(attachment_store, tmp_path):
+    from io import BytesIO
+    from pathlib import Path
+
+    sample = Path("tests/fixtures/sample.pdf").read_bytes()
+    sid = new_id()
+    meta = attachment_store.put(CUSTOMER_A, sid, account_id="A1", doc_type="delivery_note", seq=1, filename="dn.pdf", stream=BytesIO(sample))
+    with pytest.raises(NotFoundError):
+        attachment_store.open(CUSTOMER_B, meta)
+    with pytest.raises(NotFoundError):
+        attachment_store.put(CUSTOMER_B, new_id(), account_id="A1", doc_type="delivery_note", seq=1, filename="dn.pdf", stream=BytesIO(sample))
+    with attachment_store.open(INTERNAL, meta) as f:
+        assert f.read() == sample
 
 
 def test_reference_sales_orgs_are_global(reference: ReferenceRepository):

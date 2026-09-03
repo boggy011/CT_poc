@@ -105,6 +105,7 @@ def _on_validated(d: dict[str, Any], e: SubmissionEvent) -> None:
     d["validated_by"] = e.actor
     d["validated_at"] = e.occurred_at
     d["validated_seq"] = e.seq
+    d["cpi_error"] = None  # a re-validation after a dead letter re-arms dispatch
 
 
 def _on_cpi_dispatched(d: dict[str, Any], e: SubmissionEvent) -> None:
@@ -166,6 +167,10 @@ def fold(events: Sequence[SubmissionEvent]) -> Submission:
     for expected, e in enumerate(ordered[1:], start=2):
         if e.submission_id != first.submission_id:
             raise ValueError(f"mixed submission_id in log: {e.submission_id} != {first.submission_id}")
+        if e.account_id != first.account_id:
+            raise ValueError(f"mixed account_id in log at seq {e.seq}")
+        if e.seq < expected:
+            raise ValueError(f"duplicate event seq {e.seq}")
         if e.seq != expected:
             raise ValueError(f"gap in event seq: expected {expected}, got {e.seq}")
         state.apply(e)

@@ -1,6 +1,7 @@
 """External intake: validate, store PDFs, append one SUBMITTED event."""
 
 import hashlib
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, BinaryIO
@@ -12,10 +13,12 @@ from retpack_core.fieldspec import FormSpec, validate_values
 from retpack_core.fold import Submission, fold
 from retpack_core.ids import new_id
 from retpack_core.models import AttachmentMeta
+from retpack_core.pdf import PDF_MAGIC
 from retpack_core.ports import Ports
 from retpack_core.principal import Principal
 from retpack_core.services.options import Choice, enum_choices, enum_options
 
+logger = logging.getLogger(__name__)
 _CHUNK = 1024 * 1024
 
 
@@ -56,45 +59,86 @@ class IntakeService:
         """Validate and persist a new request as exactly one event append.
 
         Raises:
-            NotPermittedError: If the principal is not a customer.
+            NotPermittedError: If the principal is not a customer, or the
+                submitted account is not one of theirs.
             ValidationFailedError: On any field or attachment rule violation;
                 nothing is stored in that case.
         """
         if not principal.is_scoped:
             raise NotPermittedError("only customer accounts can submit requests")
-        account_id = str(values.get("account_id") or "") or None
+        account_id = self._account_from(values)
         result = validate_values(values, self._spec, enum_options=self.enum_options(principal, account_id=account_id))
         errors = dict(result.errors)
         errors.update(self._check_attachments(attachments))
         if errors:
             raise ValidationFailedError(errors)
+        account_id = self._owned_account(principal, result.values)
 
         submission_id = new_id()
-        metas = [self._store(principal, submission_id, i, a) for i, a in enumerate(attachments, start=1)]
-        event = events.submitted(submission_id, str(values["account_id"]), actor=principal.email, values=result.values, attachments=metas)
-        self._ports.submissions.append_event(principal, submission_id, 0, event)
+        metas: list[AttachmentMeta] = []
+        try:
+            for i, upload in enumerate(attachments, start=1):
+                metas.append(self._store(principal, submission_id, account_id, i, upload))
+            event = events.submitted(submission_id, account_id, actor=principal.email, values=result.values, attachments=metas)
+            self._ports.submissions.append_event(principal, submission_id, 0, event)
+        except Exception:
+            self._discard(principal, metas)
+            raise
+        logger.info("submission %s created by %s for account %s with %d attachment(s)", submission_id, principal.email, account_id, len(metas))
         return IntakeResult(submission=fold([event]), warnings=_warnings(metas))
 
-    def _store(self, principal: Principal, submission_id: str, seq: int, upload: UploadedPdf) -> AttachmentMeta:
-        return self._ports.attachments.put(principal, submission_id, doc_type=upload.doc_type, seq=seq, filename=upload.filename, stream=upload.stream)
+    def _account_from(self, values: Mapping[str, Any]) -> str | None:
+        f = self._spec.account_field
+        raw = values.get(f.name) if f else None
+        return str(raw) if raw else None
+
+    def _owned_account(self, principal: Principal, cleaned: Mapping[str, Any]) -> str:
+        """The account the request belongs to. Enforced here, independent of the field spec."""
+        f = self._spec.account_field
+        account = cleaned.get(f.name) if f else None
+        if account is None or str(account) not in principal.account_ids:
+            raise NotPermittedError("the request must belong to one of your accounts")
+        return str(account)
+
+    def _store(self, principal: Principal, submission_id: str, account_id: str, seq: int, upload: UploadedPdf) -> AttachmentMeta:
+        return self._ports.attachments.put(
+            principal, submission_id, account_id=account_id, doc_type=upload.doc_type, seq=seq, filename=upload.filename, stream=upload.stream
+        )
+
+    def _discard(self, principal: Principal, metas: Sequence[AttachmentMeta]) -> None:
+        for meta in metas:
+            try:
+                self._ports.attachments.delete(principal, meta)
+            except Exception:  # best effort; the original error is what matters
+                logger.exception("could not remove attachment %s after failed submit", meta.storage_path)
 
     def _check_attachments(self, attachments: Sequence[UploadedPdf]) -> dict[str, list[str]]:
         counts: dict[str, int] = {}
         for a in attachments:
             counts[a.doc_type] = counts.get(a.doc_type, 0) + 1
         errors = {f"attachments.{name}": [msg] for name, msg in self._policy.check_counts(counts).items()}
-        digests = [_sha256(a.stream) for a in attachments]
+        digests = []
+        for a in attachments:
+            digest, is_pdf = _sha256_and_magic(a.stream)
+            if not is_pdf:
+                errors[f"attachments.{a.doc_type}"] = [f"{a.filename} is not a PDF"]
+            digests.append(digest)
         if len(set(digests)) != len(digests):
             errors["attachments"] = ["the same PDF was attached more than once"]
         return errors
 
 
-def _sha256(stream: BinaryIO) -> str:
+def _sha256_and_magic(stream: BinaryIO) -> tuple[str, bool]:
     h = hashlib.sha256()
+    first = True
+    is_pdf = False
     for chunk in iter(lambda: stream.read(_CHUNK), b""):
+        if first:
+            is_pdf = chunk.startswith(PDF_MAGIC)
+            first = False
         h.update(chunk)
     stream.seek(0)
-    return h.hexdigest()
+    return h.hexdigest(), is_pdf
 
 
 def _warnings(metas: Sequence[AttachmentMeta]) -> tuple[str, ...]:

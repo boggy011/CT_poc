@@ -23,17 +23,21 @@ def _port_methods() -> list[tuple[str, str, ast.FunctionDef]]:
             if not isinstance(node, ast.ClassDef) or node.name in EXEMPT_CLASSES:
                 continue
             for item in node.body:
-                if isinstance(item, ast.FunctionDef) and not item.name.startswith("_"):
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and not item.name.startswith("_"):
                     found.append((path.name, node.name, item))
     return found
 
 
-def test_ports_directory_has_ports():
-    assert len(_port_methods()) >= 8
+EXPECTED_METHOD_COUNT = 11
+"""Bump deliberately when a port method is added; a silent drop would weaken the gate."""
+
+
+def test_ports_directory_has_exactly_the_expected_methods():
+    assert len(_port_methods()) == EXPECTED_METHOD_COUNT
 
 
 @pytest.mark.parametrize("module,cls,func", [(m, c, f) for m, c, f in _port_methods()], ids=lambda x: x if isinstance(x, str) else x.name)
-def test_every_port_method_takes_principal_first(module: str, cls: str, func: ast.FunctionDef):
+def test_every_port_method_takes_principal_first(module: str, cls: str, func: ast.FunctionDef | ast.AsyncFunctionDef):
     args = func.args.args
     assert len(args) >= 2, f"{module}:{cls}.{func.name} has no parameter after self"
     assert args[0].arg == "self"

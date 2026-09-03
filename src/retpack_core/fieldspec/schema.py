@@ -1,14 +1,19 @@
 """Pydantic schema for the field specification YAML."""
 
-import re
 from decimal import Decimal
 from enum import StrEnum
 from typing import Self
 
+import regex
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 REF_SOURCES: frozenset[str] = frozenset({"my_accounts", "skus_for_account", "sales_orgs"})
 """Dropdown sources the reference repository must be able to resolve."""
+
+MAX_TEXT_LENGTH = 10_000
+"""Absolute cap on any string/text field, applied even when ``max_length`` is unset."""
+MAX_PATTERN_LENGTH = 1_024
+"""Largest ``max_length`` allowed together with a ``pattern`` (bounded regex input)."""
 
 _STATIC_PREFIX = "static:"
 _REF_PREFIX = "ref:"
@@ -50,30 +55,43 @@ class FieldSpec(BaseModel):
     order: int
     required: bool = False
     pattern: str | None = None
-    max_length: int | None = Field(default=None, ge=1)
+    max_length: int | None = Field(default=None, ge=1, le=MAX_TEXT_LENGTH)
     min: Decimal | None = None
     max: Decimal | None = None
+    scale: int | None = Field(default=None, ge=0, le=10)
     source: str | None = None
     help: str | None = None
 
     @model_validator(mode="after")
     def _check_rules_match_type(self) -> Self:
-        if self.pattern is not None:
-            if self.type not in _TEXTUAL:
-                raise ValueError(f"field {self.name}: pattern is only valid for string/text fields")
-            try:
-                re.compile(self.pattern)
-            except re.error as exc:
-                raise ValueError(f"field {self.name}: invalid regex pattern: {exc}") from exc
-        if self.max_length is not None and self.type not in _TEXTUAL:
-            raise ValueError(f"field {self.name}: max_length is only valid for string/text fields")
-        if (self.min is not None or self.max is not None) and self.type not in _NUMERIC:
-            raise ValueError(f"field {self.name}: min/max are only valid for integer/decimal fields")
+        self._check_text_rules()
+        self._check_numeric_rules()
         if self.type is FieldType.ENUM:
             self._check_source()
         elif self.source is not None:
             raise ValueError(f"field {self.name}: source is only valid for enum fields")
         return self
+
+    def _check_text_rules(self) -> None:
+        if self.pattern is not None:
+            if self.type not in _TEXTUAL:
+                raise ValueError(f"field {self.name}: pattern is only valid for string/text fields")
+            try:
+                regex.compile(self.pattern)
+            except regex.error as exc:
+                raise ValueError(f"field {self.name}: invalid regex pattern: {exc}") from exc
+            if self.max_length is None or self.max_length > MAX_PATTERN_LENGTH:
+                raise ValueError(f"field {self.name}: a pattern requires max_length <= {MAX_PATTERN_LENGTH}")
+        if self.max_length is not None and self.type not in _TEXTUAL:
+            raise ValueError(f"field {self.name}: max_length is only valid for string/text fields")
+
+    def _check_numeric_rules(self) -> None:
+        if (self.min is not None or self.max is not None) and self.type not in _NUMERIC:
+            raise ValueError(f"field {self.name}: min/max are only valid for integer/decimal fields")
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError(f"field {self.name}: min {self.min} is greater than max {self.max}")
+        if self.scale is not None and self.type is not FieldType.DECIMAL:
+            raise ValueError(f"field {self.name}: scale is only valid for decimal fields")
 
     def _check_source(self) -> None:
         if not self.source:
@@ -105,6 +123,16 @@ class FieldSpec(BaseModel):
     def is_textual(self) -> bool:
         """True for string and text fields."""
         return self.type in _TEXTUAL
+
+    @property
+    def effective_max_length(self) -> int:
+        """``max_length`` or the absolute cap."""
+        return self.max_length if self.max_length is not None else MAX_TEXT_LENGTH
+
+    @property
+    def effective_scale(self) -> int:
+        """Decimal places stored for decimal fields (default 2)."""
+        return self.scale if self.scale is not None else 2
 
 
 class FormSpec(BaseModel):
@@ -146,3 +174,8 @@ class FormSpec(BaseModel):
     def fields_in(self, section: str) -> tuple[FieldSpec, ...]:
         """Fields belonging to one section, in display order."""
         return tuple(f for f in self.fields if f.section == section)
+
+    @property
+    def account_field(self) -> FieldSpec | None:
+        """The field that selects the owning account (``ref:my_accounts``), if any."""
+        return next((f for f in self.fields if f.ref_source == "my_accounts"), None)

@@ -13,6 +13,7 @@ def test_status_placeholder_members():
 def _meta(**overrides: object) -> AttachmentMeta:
     base = dict(
         submission_id="0190f0a0-0000-7000-8000-000000000001",
+        account_id="A1",
         doc_type="delivery_note",
         seq=1,
         original_filename="dn.pdf",
@@ -34,7 +35,18 @@ def test_attachment_meta_is_frozen():
         meta.seq = 2  # type: ignore[misc]
 
 
-@pytest.mark.parametrize("field,value", [("size_bytes", -1), ("page_count", -1), ("seq", 0), ("sha256", "abc")])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("size_bytes", -1),
+        ("page_count", -1),
+        ("seq", 0),
+        ("sha256", "abc"),
+        ("original_filename", "../x.pdf"),
+        ("original_filename", 'a"b.pdf'),
+        ("original_filename", "x" * 256),
+    ],
+)
 def test_attachment_meta_rejects_invalid(field: str, value: object):
     with pytest.raises(ValidationError):
         _meta(**{field: value})

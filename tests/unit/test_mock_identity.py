@@ -44,9 +44,9 @@ def test_no_identity_at_all_is_none(directory: FixtureAccountDirectory):
     assert MockIdentityProvider(directory, default_email=None).resolve({}) is None
 
 
-def test_switch_user_override_wins(directory: FixtureAccountDirectory):
+def test_header_beats_default(directory: FixtureAccountDirectory):
     provider = MockIdentityProvider(directory, default_email="ops@abi.com")
-    p = provider.resolve({}, override_email="a@dist.com")
+    p = provider.resolve({"x-forwarded-email": "a@dist.com"})
     assert p is not None and p.email == "a@dist.com"
 
 

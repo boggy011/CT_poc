@@ -62,6 +62,7 @@ def test_validate_moves_request_out_of_submitted(app_for: Callable[[str], AppTes
     assert any("validated" in s.value.lower() for s in at.success)
     sub = state.get_container().ports.submissions.get_submission(INTERNAL, sid)
     assert sub.status is Status.VALIDATED and sub.validated_by == OPS
+    at.selectbox(key="queue_status").select("SUBMITTED").run()
     assert short_ref(sid) not in [str(o) for o in at.selectbox(key="queue_selected").options]
 
 
@@ -82,9 +83,61 @@ def test_stale_version_shows_conflict(app_for: Callable[[str], AppTest]):
     assert repo.get_submission(INTERNAL, sid).status is Status.VALIDATED
 
 
-def test_validated_request_has_no_actions_and_shows_cpi_outcome(app_for: Callable[[str], AppTest]):
+def test_validated_request_has_no_actions_but_dead_letter_does(app_for: Callable[[str], AppTest]):
     at = app_for(OPS)
-    at.selectbox(key="queue_status").select("CPI_FAILED").run()
+    at.selectbox(key="queue_status").select("VALIDATED").run()
     open_first(at)
     assert [b for b in at.button if b.key == "validate"] == []
+    at.selectbox(key="queue_status").select("CPI_FAILED").run()
+    sid = open_first(at)
     assert any("unknown sold-to" in e.value for e in at.error)
+    assert [b for b in at.button if b.key == "validate"]
+    at.button(key="validate").click().run()
+    assert state.get_container().ports.submissions.get_submission(INTERNAL, sid).status is Status.VALIDATED
+
+
+def test_validate_keeps_request_on_screen_via_all_filter(app_for: Callable[[str], AppTest]):
+    at = app_for(OPS)
+    sid = open_first(at)
+    at.button(key="validate").click().run()
+    assert at.selectbox(key="queue_status").value == "All"
+    assert str(at.selectbox(key="queue_selected").value) == sid
+
+
+def test_account_field_not_offered_for_overwrite(app_for: Callable[[str], AppTest]):
+    at = app_for(OPS)
+    open_first(at)
+    assert "account_id" not in at.selectbox(key="ow_field").options
+
+
+def test_download_is_two_step_and_reads_bytes_once(app_for: Callable[[str], AppTest], monkeypatch):
+    from retpack_adapters.attachments import local
+
+    opened: list[str] = []
+    real_open = local.LocalAttachmentStore.open
+
+    def counting_open(self, principal, meta):
+        opened.append(meta.storage_path)
+        return real_open(self, principal, meta)
+
+    monkeypatch.setattr(local.LocalAttachmentStore, "open", counting_open)
+    at = app_for(OPS)
+    at.selectbox(key="queue_status").select("All").run()
+    box = at.selectbox(key="queue_selected")
+    with_pdf = next(i for i, sid in enumerate(box.options) if True)
+    box.select_index(with_pdf).run()
+    # Rendering the detail must not open any file.
+    assert opened == []
+    prep = [b for b in at.button if str(b.key).startswith("prep_")]
+    if not prep:  # first request may have no PDFs; pick one that does
+        at.selectbox(key="queue_status").select("SUBMITTED").run()
+        for i in range(len(at.selectbox(key="queue_selected").options)):
+            at.selectbox(key="queue_selected").select_index(i).run()
+            prep = [b for b in at.button if str(b.key).startswith("prep_")]
+            if prep:
+                break
+    assert prep and opened == []
+    at.button(key=prep[0].key).click().run()
+    assert len(opened) == 1
+    at.selectbox(key="ow_field").select("seal_no").run()  # unrelated rerun
+    assert len(opened) == 1

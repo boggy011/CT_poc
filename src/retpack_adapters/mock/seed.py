@@ -57,7 +57,15 @@ def seed_demo(repo: SubmissionRepository, store: AttachmentStore, data_dir: Path
         t0 = BASE_TIME + timedelta(days=i, hours=i % 5)
         customer = Principal(email=sc["actor"], account_ids=frozenset({sc["account"]}), role=Role.CUSTOMER)
         metas = [
-            store.put(customer, sid, doc_type="delivery_note" if k == 0 else "other", seq=k + 1, filename=name, stream=BytesIO(pdf_bytes[name]))
+            store.put(
+                customer,
+                sid,
+                account_id=sc["account"],
+                doc_type="delivery_note" if k == 0 else "other",
+                seq=k + 1,
+                filename=name,
+                stream=BytesIO(pdf_bytes[name]),
+            )
             for k, name in enumerate(sc["pdfs"])
         ]
         log: list[SubmissionEvent] = [events.submitted(sid, sc["account"], actor=sc["actor"], values=_values(i, sc), attachments=metas, at=t0)]

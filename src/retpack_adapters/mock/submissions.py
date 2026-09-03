@@ -1,5 +1,6 @@
 """In-memory event store with the same scoping and concurrency contract as the real backends."""
 
+import logging
 import threading
 
 from retpack_core.errors import ConcurrencyConflictError, NotFoundError
@@ -7,6 +8,8 @@ from retpack_core.events import EventType, SubmissionEvent
 from retpack_core.fold import Submission, fold
 from retpack_core.models import Status
 from retpack_core.principal import Principal
+
+logger = logging.getLogger(__name__)
 
 
 class InMemorySubmissionRepository:
@@ -27,6 +30,10 @@ class InMemorySubmissionRepository:
             if log is None:
                 return self._create(principal, submission_id, expected_seq, event)
             self._require_visible(principal, log[0])
+            if event.event_type is EventType.SUBMITTED:
+                raise ValueError("SUBMITTED is only valid as the first event")
+            if event.account_id != log[0].account_id:
+                raise ValueError("event.account_id does not match the submission's account")
             if len(log) != expected_seq:
                 raise ConcurrencyConflictError(f"expected seq {expected_seq}, log is at {len(log)}")
             log.append(event)
@@ -38,7 +45,7 @@ class InMemorySubmissionRepository:
         if principal.is_scoped and event.account_id not in principal.account_ids:
             raise NotFoundError(submission_id)
         self._logs[submission_id] = [event]
-        return 1
+        return event.seq
 
     def get_events(self, principal: Principal, submission_id: str) -> tuple[SubmissionEvent, ...]:
         """See ``SubmissionRepository.get_events``."""
@@ -54,10 +61,17 @@ class InMemorySubmissionRepository:
         return fold(self.get_events(principal, submission_id))
 
     def list_submissions(self, principal: Principal, *, status: Status | None = None, limit: int = 200) -> tuple[Submission, ...]:
-        """See ``SubmissionRepository.list_submissions``."""
+        """See ``SubmissionRepository.list_submissions``. A corrupt log is skipped and logged, never fatal."""
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
         with self._lock:
             logs = [tuple(log) for log in self._logs.values() if self._visible(principal, log[0])]
-        subs = [fold(log) for log in logs]
+        subs = []
+        for log in logs:
+            try:
+                subs.append(fold(log))
+            except ValueError:
+                logger.exception("skipping corrupt event log for submission %s", log[0].submission_id)
         if status is not None:
             subs = [s for s in subs if s.status is status]
         subs.sort(key=lambda s: (s.submitted_at, s.submission_id), reverse=True)

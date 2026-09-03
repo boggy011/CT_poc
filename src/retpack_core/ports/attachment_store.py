@@ -9,21 +9,35 @@ from retpack_core.principal import Principal
 class AttachmentStore(Protocol):
     """Streams PDF bytes to storage and returns typed metadata.
 
-    Access control for reads is enforced by the calling service through the
-    submission repository (a principal can only obtain ``AttachmentMeta`` for
-    submissions it may see). The store records ``principal`` for audit.
+    Objects live under ``<account_id>/<submission_id>/`` so the store can
+    enforce account scope on its own (second isolation layer for FR-02),
+    independently of the service-level check through the submission repository.
     """
 
-    def put(self, principal: Principal, submission_id: str, *, doc_type: str, seq: int, filename: str, stream: BinaryIO) -> AttachmentMeta:
+    def put(self, principal: Principal, submission_id: str, *, account_id: str, doc_type: str, seq: int, filename: str, stream: BinaryIO) -> AttachmentMeta:
         """Validate and store one PDF.
 
         The stream is consumed once and never buffered wholesale in memory.
 
         Raises:
-            InvalidAttachmentError: If the bytes are not a PDF or exceed the size limit.
+            InvalidAttachmentError: If the bytes are not a PDF, exceed the size
+                limit, or cannot be inspected within budget.
+            NotFoundError: If ``account_id`` is outside the principal's scope.
         """
         ...
 
     def open(self, principal: Principal, meta: AttachmentMeta) -> BinaryIO:
-        """Open the stored bytes for reading (caller closes)."""
+        """Open the stored bytes for reading (caller closes).
+
+        Raises:
+            NotFoundError: If the object is missing or outside the principal's scope.
+        """
+        ...
+
+    def delete(self, principal: Principal, meta: AttachmentMeta) -> None:
+        """Remove one stored object; missing objects are ignored.
+
+        Raises:
+            NotFoundError: If outside the principal's scope.
+        """
         ...

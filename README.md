@@ -12,7 +12,8 @@ uv sync --all-extras
 make run-mock
 ```
 
-Open http://localhost:8501. Use the **Demo user** switcher in the sidebar:
+Open http://localhost:8501. The sidebar shows a **Demo mode** banner and a **Demo user** switcher (mock backend only; no
+other backend exposes it):
 
 | User | Role | Sees |
 |---|---|---|
@@ -34,7 +35,10 @@ covering every status, including one with an unreadable (scanned) PDF and one de
 | `RETPACK_MOCK_DATA_DIR` | `config/mock` | Reference data and users for the mock backend |
 | `RETPACK_ATTACHMENT_DIR` | `.retpack_attachments` | Local PDF store for the mock backend |
 | `RETPACK_MOCK_USER` | unset | Default signed-in email for local runs |
-| `RETPACK_MOCK_SEED` | `1` | Seed the demo requests on start |
+| `RETPACK_MOCK_SEED` | `0` | Seed the demo requests on start (`make run-mock` sets it) |
+
+`.streamlit/config.toml` caps uploads at the same size as the attachment policy and hides exception details from the
+browser; a test keeps the two in sync.
 
 ## Layout
 
@@ -51,8 +55,9 @@ tests/                 unit, contract (parametrized over backends), isolation (F
 ## Development
 
 ```bash
-make check            # ruff, mypy, pytest with coverage gate (80%)
+make check            # ruff, mypy, pytest with coverage gate (80%), bandit, pip-audit
 make test             # tests only
+make security         # bandit + pip-audit only
 make contract-delta   # contract + isolation suites against Delta (needs a workspace; Phase B)
 make contract-lakebase
 ```
@@ -62,3 +67,6 @@ knows about and includes a static check that no repository method can be called 
 
 `tests/unit/test_core_purity.py` fails the build if any Databricks, Streamlit or database-driver import creeps into
 `retpack_core`.
+
+PDF inspection (page count, text-layer check) runs in a short-lived subprocess with a time and memory budget, so a
+hostile file cannot stall the shared app container.

@@ -26,8 +26,19 @@ def test_unknown_user_is_stopped_with_message(app_for: Callable[[str], AppTest])
     assert not at.sidebar.radio
 
 
-def test_demo_user_switcher_changes_principal(app_for: Callable[[str], AppTest]):
+def test_demo_user_switcher_changes_principal_and_purges_session(app_for: Callable[[str], AppTest]):
     at = app_for(ANNA)
+    at.session_state["intake_result"] = "anna-only"
+    at.session_state["queue_seen"] = ("x", 1)
     switcher = at.sidebar.selectbox(key="demo_user")
     switcher.select(OPS).run()
+    assert not at.exception
     assert at.sidebar.radio[0].options == ["Request queue"]
+    assert "intake_result" not in at.session_state
+    assert "queue_seen" not in at.session_state
+    assert at.session_state["_principal_email"] == OPS
+
+
+def test_demo_mode_banner_shown(app_for: Callable[[str], AppTest]):
+    at = app_for(ANNA)
+    assert any("Demo mode" in w.value for w in at.sidebar.warning)

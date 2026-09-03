@@ -31,7 +31,7 @@ def test_happy_path_returns_coerced_values():
     result = validate_values(VALID, SPEC, enum_options=OPTIONS)
     assert result.ok, result.errors
     assert result.values["quantity"] == 12
-    assert result.values["weight_tons"] == "1.5"
+    assert result.values["weight_tons"] == "1.50"
     assert result.values["pickup_date"] == "2026-09-10"
     assert result.values["container_no"] == "1234567890"
 
@@ -70,7 +70,10 @@ def test_integer_rules(bad: str, msg: str):
     assert result.errors["quantity"] == [msg]
 
 
-@pytest.mark.parametrize("bad,msg", [("heavy", "must be a number"), ("-1", "must be at least 0")])
+@pytest.mark.parametrize(
+    "bad,msg",
+    [("heavy", "must be a number"), ("-1", "must be at least 0"), ("1e5", "must be a number"), ("1_0", "must be a number"), ("9" * 41, "must be a number")],
+)
 def test_decimal_rules(bad: str, msg: str):
     result = validate_values({**VALID, "weight_tons": bad}, SPEC, enum_options=OPTIONS)
     assert result.errors["weight_tons"] == [msg]
@@ -122,3 +125,56 @@ def test_native_types_accepted():
     assert result.values["quantity"] == 5
     assert result.values["weight_tons"] == "2.25"
     assert result.values["pickup_date"] == "2026-09-11"
+
+
+def test_float_noise_is_quantised_to_scale():
+    result = validate_values({**VALID, "weight_tons": 0.1 + 0.2}, SPEC, enum_options=OPTIONS)
+    assert result.values["weight_tons"] == "0.30"
+    result = validate_values({**VALID, "weight_tons": 1e-05}, SPEC, enum_options=OPTIONS)
+    assert result.values["weight_tons"] == "0.00"
+
+
+def test_datetime_is_stored_as_date():
+    from datetime import UTC, datetime
+
+    result = validate_values({**VALID, "pickup_date": datetime(2026, 9, 3, 14, 30, tzinfo=UTC)}, SPEC, enum_options=OPTIONS)
+    assert result.values["pickup_date"] == "2026-09-03"
+
+
+def test_all_violations_reported_per_field():
+    result = validate_values({**VALID, "container_no": "x" * 11}, SPEC, enum_options=OPTIONS)
+    assert result.errors["container_no"] == ["must be at most 10 characters", r"must match ^\d{10}$"]
+
+
+def test_huge_integer_string_is_a_validation_error_not_a_crash():
+    result = validate_values({**VALID, "quantity": "9" * 5000}, SPEC, enum_options=OPTIONS)
+    assert result.errors["quantity"] == ["must be an integer"]
+
+
+def test_text_without_max_length_is_still_capped():
+    from retpack_core.fieldspec import parse_form_spec
+    from retpack_core.fieldspec.schema import MAX_TEXT_LENGTH
+
+    spec = parse_form_spec(
+        {"version": 1, "sections": [{"name": "s", "label": "S"}], "fields": [{"name": "t", "label": "T", "type": "text", "section": "s", "order": 1}]}
+    )
+    result = validate_values({"t": "x" * (MAX_TEXT_LENGTH + 1)}, spec)
+    assert result.errors["t"] == [f"must be at most {MAX_TEXT_LENGTH} characters"]
+
+
+def test_catastrophic_pattern_cannot_stall_validation():
+    import time
+
+    from retpack_core.fieldspec import parse_form_spec
+
+    spec = parse_form_spec(
+        {
+            "version": 1,
+            "sections": [{"name": "s", "label": "S"}],
+            "fields": [{"name": "t", "label": "T", "type": "string", "section": "s", "order": 1, "pattern": r"^(\w+\s?)*$", "max_length": 64}],
+        }
+    )
+    started = time.perf_counter()
+    result = validate_values({"t": "a" * 40 + "!"}, spec)
+    assert time.perf_counter() - started < 2
+    assert result.errors["t"] == [r"must match ^(\w+\s?)*$"]
