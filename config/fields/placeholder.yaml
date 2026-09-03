@@ -1,0 +1,106 @@
+# PLACEHOLDER field specification for Phase A.
+# Replaced by config/fields/abi_v1.yaml once the ABI mapping Excel arrives (input 1).
+# One field of every type and every rule kind so the renderer and validator are fully exercised.
+version: 1
+
+sections:
+  - name: account
+    label: Account
+  - name: shipment
+    label: Shipment
+  - name: quantities
+    label: Quantities
+  - name: notes
+    label: Notes
+
+fields:
+  - name: account_id
+    label: Account
+    type: enum
+    section: account
+    order: 10
+    required: true
+    source: ref:my_accounts
+    help: Payer / sold-to account this return belongs to.
+
+  - name: sku_code
+    label: SKU
+    type: enum
+    section: account
+    order: 20
+    required: true
+    source: ref:skus_for_account
+
+  - name: sales_org
+    label: Sales organisation
+    type: enum
+    section: account
+    order: 30
+    required: false
+    source: ref:sales_orgs
+    help: Auto-populated by the internal team if left blank.
+
+  - name: container_no
+    label: Container number
+    type: string
+    section: shipment
+    order: 10
+    required: true
+    pattern: '^\d{10}$'
+    max_length: 10
+
+  - name: seal_no
+    label: Seal number
+    type: string
+    section: shipment
+    order: 20
+    required: false
+    max_length: 20
+
+  - name: bl_no
+    label: Bill of lading number
+    type: string
+    section: shipment
+    order: 30
+    required: true
+    max_length: 30
+
+  - name: destination
+    label: Destination
+    type: enum
+    section: shipment
+    order: 40
+    required: true
+    source: "static:Antwerp,Rotterdam,Hamburg,Le Havre"
+
+  - name: pickup_date
+    label: Pickup date
+    type: date
+    section: shipment
+    order: 50
+    required: true
+
+  - name: quantity
+    label: Quantity (kegs)
+    type: integer
+    section: quantities
+    order: 10
+    required: true
+    min: 1
+    max: 10000
+
+  - name: weight_tons
+    label: Gross weight (t)
+    type: decimal
+    section: quantities
+    order: 20
+    required: false
+    min: 0
+
+  - name: remarks
+    label: Remarks
+    type: text
+    section: notes
+    order: 10
+    required: false
+    max_length: 2000

@@ -1,0 +1,13 @@
+# PLACEHOLDER attachment policy for Phase A.
+# Real document types, cardinality and size limit are ABI input 2 (see RETPACK_REQUIREMENTS.md section 7).
+version: 1
+max_size_mb: 25
+doc_types:
+  - name: delivery_note
+    label: Delivery note
+    required: false
+    max_count: 1
+  - name: other
+    label: Other supporting document
+    required: false
+    max_count: 3
