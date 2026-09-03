@@ -238,4 +238,8 @@ def _apps_identity(settings: Settings, directory: SqlAccountDirectory) -> Identi
     from retpack_adapters.identity.databricks_apps import DatabricksAppsIdentityProvider, SdkTokenIdentityLookup
 
     host = settings.extra.get("DATABRICKS_HOST", os.environ.get("DATABRICKS_HOST", ""))
+    if not host:
+        from databricks.sdk.core import Config
+
+        host = Config().host
     return DatabricksAppsIdentityProvider(directory, SdkTokenIdentityLookup(host), trust_forwarded_email=settings.trust_forwarded_email)

@@ -31,6 +31,14 @@ def executor_for(backend: str, settings: Settings) -> SqlExecutor:
     return factory._lakebase_executor(settings)  # noqa: SLF001
 
 
+def _delta_file_enabled(name: str) -> bool:
+    if "dev_stubs" in name:
+        return os.environ.get("RETPACK_MIGRATE_DEV_STUBS") == "1"
+    if "row_filters" in name:
+        return os.environ.get("RETPACK_MIGRATE_ROW_FILTERS") == "1"
+    return True
+
+
 def main(argv: list[str]) -> int:
     """Run all ``migrations/<backend>/*.sql`` in order."""
     logging.basicConfig(level=logging.INFO)
@@ -42,7 +50,7 @@ def main(argv: list[str]) -> int:
     variables = {"catalog": settings.catalog, "schema": settings.schema, "ref_schema": settings.ref_schema}
     files = migration_files(Path("migrations") / backend)
     if backend == "delta":
-        files = [f for f in files if "dev_stubs" not in f.name or os.environ.get("RETPACK_MIGRATE_DEV_STUBS") == "1"]
+        files = [f for f in files if _delta_file_enabled(f.name)]
     count = apply_files(executor_for(backend, settings), files, variables)
     logger.info("applied %d statements from %d files for %s", count, len(files), backend)
     return 0

@@ -4,6 +4,8 @@
 command: ["streamlit", "run", "src/retpack_ui/app.py"]
 
 env:
+  - name: PYTHONPATH
+    value: src
   - name: RETPACK_SUBMISSION_BACKEND
     value: delta
   - name: RETPACK_CATALOG

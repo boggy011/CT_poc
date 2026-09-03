@@ -55,15 +55,28 @@ def sqlite_db() -> Iterator[SqliteExecutor]:
     db.close()
 
 
+def _workspace_container():  # type: ignore[no-untyped-def]
+    from retpack_adapters.factory import Settings, build_container
+
+    return build_container(Settings.from_env(os.environ))
+
+
+def _truncate_workspace_events() -> None:
+    """Shared dev schema: each test starts from an empty event table (use a dedicated RETPACK_SCHEMA for tests)."""
+    from retpack_adapters import factory
+
+    settings = factory.Settings.from_env(os.environ)
+    factory._delta_executor(settings).execute(f"DELETE FROM {settings.catalog}.{settings.schema}.submission_event")  # noqa: SLF001
+
+
 @pytest.fixture
 def repo(backend: str, sqlite_db: SqliteExecutor) -> SubmissionRepository:
     if backend == "mock":
         return InMemorySubmissionRepository()
     if backend == "sqlite":
         return SqlSubmissionRepository(sqlite_db, sqlite_dialect())
-    from retpack_adapters.factory import Settings, build_container
-
-    return build_container(Settings.from_env(os.environ)).ports.submissions
+    _truncate_workspace_events()
+    return _workspace_container().ports.submissions
 
 
 @pytest.fixture
@@ -72,14 +85,16 @@ def reference(backend: str, sqlite_db: SqliteExecutor) -> ReferenceRepository:
         return load_reference(MOCK_DATA)
     if backend == "sqlite":
         return SqlReferenceRepository(sqlite_db)
-    from retpack_adapters.factory import Settings, build_container
-
-    return build_container(Settings.from_env(os.environ)).ports.reference
+    return _workspace_container().ports.reference
 
 
-@pytest.fixture(params=["local", "volume"])
+@pytest.fixture(params=["local", "volume", "volume-real"])
 def attachment_store(request: pytest.FixtureRequest, tmp_path: Path) -> AttachmentStore:
     policy = load_attachment_policy(POLICY)
     if request.param == "local":
         return LocalAttachmentStore(tmp_path / "att", policy=policy)
-    return VolumeAttachmentStore(InMemoryFilesClient(), root="/Volumes/cat/retpack/attachments", policy=policy, spool_dir=tmp_path / "spool")
+    if request.param == "volume":
+        return VolumeAttachmentStore(InMemoryFilesClient(), root="/Volumes/cat/retpack/attachments", policy=policy, spool_dir=tmp_path / "spool")
+    if not os.environ.get("RETPACK_TEST_DELTA"):
+        pytest.skip("real Volume needs RETPACK_TEST_DELTA=1 and workspace settings")
+    return _workspace_container().ports.attachments
