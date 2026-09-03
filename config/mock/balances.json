@@ -1,0 +1,6 @@
+[
+  {"account_id": "A1", "shipped": 340, "returned": 295, "as_of": "2026-09-01T06:00:00Z"},
+  {"account_id": "A2", "shipped": 120, "returned": 118, "as_of": "2026-09-01T06:00:00Z"},
+  {"account_id": "B1", "shipped": 610, "returned": 540, "as_of": "2026-09-01T06:00:00Z"},
+  {"account_id": "C1", "shipped": 90, "returned": 90, "as_of": "2026-09-01T06:00:00Z"}
+]

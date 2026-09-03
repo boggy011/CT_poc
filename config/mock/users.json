@@ -1,0 +1,7 @@
+[
+  {"email": "anna@northsea-distribution.example", "account_ids": ["A1", "A2"], "role": "CUSTOMER"},
+  {"email": "bram@rhine-logistics.example", "account_ids": ["B1"], "role": "CUSTOMER"},
+  {"email": "carla@baltic-bev.example", "account_ids": ["C1"], "role": "CUSTOMER"},
+  {"email": "ops1@abi.example", "account_ids": [], "role": "INTERNAL"},
+  {"email": "ops2@abi.example", "account_ids": [], "role": "INTERNAL"}
+]

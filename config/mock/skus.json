@@ -1,0 +1,19 @@
+[
+  {"account_id": "A1", "sku_code": "KEG50", "description": "50L steel keg"},
+  {"account_id": "A1", "sku_code": "KEG30", "description": "30L steel keg"},
+  {"account_id": "A1", "sku_code": "KEG20", "description": "20L steel keg"},
+  {"account_id": "A1", "sku_code": "KEG50S", "description": "50L slim keg"},
+  {"account_id": "A2", "sku_code": "KEG50", "description": "50L steel keg"},
+  {"account_id": "A2", "sku_code": "KEG30", "description": "30L steel keg"},
+  {"account_id": "A2", "sku_code": "KEG20", "description": "20L steel keg"},
+  {"account_id": "A2", "sku_code": "KEG50S", "description": "50L slim keg"},
+  {"account_id": "A2", "sku_code": "KEG10", "description": "10L party keg"},
+  {"account_id": "B1", "sku_code": "KEG50", "description": "50L steel keg"},
+  {"account_id": "B1", "sku_code": "KEG30", "description": "30L steel keg"},
+  {"account_id": "B1", "sku_code": "KEG20", "description": "20L steel keg"},
+  {"account_id": "B1", "sku_code": "PAL_EU", "description": "EUR pallet"},
+  {"account_id": "C1", "sku_code": "KEG50", "description": "50L steel keg"},
+  {"account_id": "C1", "sku_code": "KEG30", "description": "30L steel keg"},
+  {"account_id": "C1", "sku_code": "KEG20", "description": "20L steel keg"},
+  {"account_id": "C1", "sku_code": "KEG50S", "description": "50L slim keg"}
+]

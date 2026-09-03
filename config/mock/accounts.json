@@ -1,0 +1,6 @@
+[
+  {"account_id": "A1", "name": "North Sea Distribution BV", "sales_org": "2000"},
+  {"account_id": "A2", "name": "North Sea Distribution - Antwerp depot", "sales_org": "1000"},
+  {"account_id": "B1", "name": "Rhine Logistics GmbH", "sales_org": "3000"},
+  {"account_id": "C1", "name": "Baltic Beverages Oy", "sales_org": "4000"}
+]

@@ -59,8 +59,17 @@ def test_open_refuses_paths_outside_root(store: LocalAttachmentStore, tmp_path: 
     outside = tmp_path / "secret.pdf"
     outside.write_bytes(SAMPLE)
     meta = AttachmentMeta(
-        submission_id=SID, doc_type="x", seq=1, original_filename="s.pdf", storage_path=str(outside), sha256="a" * 64,
-        size_bytes=1, page_count=1, has_text_layer=True, uploaded_at=__import__("datetime").datetime.now(__import__("datetime").UTC), uploaded_by="a@dist.com",
+        submission_id=SID,
+        doc_type="x",
+        seq=1,
+        original_filename="s.pdf",
+        storage_path=str(outside),
+        sha256="a" * 64,
+        size_bytes=1,
+        page_count=1,
+        has_text_layer=True,
+        uploaded_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+        uploaded_by="a@dist.com",
     )
     with pytest.raises(NotFoundError):
         store.open(CUSTOMER_A, meta)
