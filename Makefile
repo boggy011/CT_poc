@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test test-cov contract-delta contract-lakebase run-mock run-sqlite migrate-sqlite migrate-delta security check
+.PHONY: install lint format typecheck test test-cov contract-delta contract-lakebase run-mock run-sqlite migrate-sqlite migrate-delta users security check
 
 install:
 	uv sync --all-extras
@@ -34,6 +34,10 @@ migrate-sqlite:
 
 migrate-delta:
 	uv run python -m retpack_adapters.migrate_cli delta
+
+# Provision portal users in the workspace dev tables, e.g. make users ARGS="add-internal someone@abi.example"
+users:
+	uv run python -m retpack_adapters.users_cli $(ARGS)
 
 run-mock:
 	RETPACK_SUBMISSION_BACKEND=mock RETPACK_MOCK_SEED=1 uv run streamlit run src/retpack_ui/app.py

@@ -78,7 +78,31 @@ curl -H "Authorization: Bearer $TOKEN" https://<app url>/logz/batch         # JS
 
 The isolation suite is the FR-02 release gate; do not promote a build that does not pass it on the target backend.
 
-## 4. Jobs
+## 4. Provisioning users
+
+Two independent things gate a person:
+
+1. **Access to the app itself** (Databricks). Workspace admins have it through the `admins` group; anyone else needs
+   `CAN_USE` on the app: Compute → Apps → retpack-portal → Permissions, or
+   `databricks apps set-permissions retpack-portal --json '{"access_control_list": [{"user_name": "<email>", "permission_level": "CAN_USE"}]}'`.
+2. **Provisioning in the portal** (the reference tables; ABI-owned views in production, dev stubs here). Until this is
+   done the person sees *"Your account is not provisioned"*.
+
+```bash
+export DATABRICKS_CONFIG_PROFILE=CT DATABRICKS_WAREHOUSE_ID=26d7ac8a72a227a0 RETPACK_CATALOG=ct_retpack_dev RETPACK_REF_SCHEMA=retpack
+make users ARGS="list"
+make users ARGS="add-internal someone@customertimes.com"          # ABI-team role: sees the Request Queue
+make users ARGS="add-customer someone@dist.example A1 A2"         # customer role: sees the two customer screens
+make users ARGS="remove someone@dist.example"
+```
+
+Or in the SQL editor: `INSERT INTO ct_retpack_dev.retpack.ref_internal_user VALUES ('someone@customertimes.com')` /
+`INSERT INTO ct_retpack_dev.retpack.ref_email_account VALUES ('someone@dist.example', 'A1')`.
+
+No restart or redeploy: identity is resolved from these tables on every page load, so the person just reloads the app.
+The **View as** list in Demo Mode picks up new users the same way.
+
+## 5. Jobs
 
 `databricks bundle deploy` also creates `retpack-maintenance` (nightly OPTIMIZE / VACUUM) and
 `retpack-attachment-reaper` (nightly orphan cleanup, 24 h grace). Build the wheel first: `uv build`.
