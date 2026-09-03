@@ -34,14 +34,21 @@ class TokenIdentityLookup(Protocol):
 class SdkTokenIdentityLookup:
     """Calls ``current_user.me()`` with the forwarded token."""
 
-    def __init__(self, host: str, workspace_client_factory: Any = None) -> None:
+    def __init__(self, host: str | None = None, workspace_client_factory: Any = None) -> None:
         self._host = host
         self._factory = workspace_client_factory or _default_factory
+
+    def _resolve_host(self) -> str:
+        if not self._host:
+            from databricks.sdk.core import Config
+
+            self._host = str(Config().host)  # resolved lazily: only on the first real lookup
+        return self._host
 
     def email_for_token(self, token: str) -> str | None:
         """See ``TokenIdentityLookup.email_for_token``."""
         try:
-            user = self._factory(self._host, token).current_user.me()
+            user = self._factory(self._resolve_host(), token).current_user.me()
         except Exception as exc:  # any failure means we do not know who this is
             logger.warning("token identity lookup failed: %s", type(exc).__name__)
             return None

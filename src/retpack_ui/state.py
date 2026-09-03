@@ -5,6 +5,7 @@ queue selection). It is bound to the principal that produced it: whenever the
 resolved identity changes, every key except the demo switcher is discarded.
 """
 
+import logging
 import os
 from collections.abc import Mapping
 
@@ -13,6 +14,7 @@ import streamlit as st
 from retpack_adapters.factory import Container, Settings, build_container
 from retpack_core.principal import Principal
 
+logger = logging.getLogger(__name__)
 _CONTAINER: Container | None = None
 
 BOUND_EMAIL_KEY = "_principal_email"
@@ -55,6 +57,9 @@ def resolve_principal(container: Container) -> Principal | None:
     if override:
         headers[FORWARDED_EMAIL] = str(override)
     principal = container.identity.resolve(headers)
+    if principal is None:
+        forwarded = sorted(k.lower() for k in headers if k.lower().startswith("x-forwarded"))
+        logger.info("no principal resolved; forwarded headers present: %s", forwarded)  # names only, never values
     bind_session(principal)
     return principal
 
