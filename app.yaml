@@ -24,3 +24,6 @@ env:
     value: config/attachments.yaml
   - name: RETPACK_TRUST_FORWARDED_EMAIL
     value: "0"
+  # DEV DEMO ONLY: lets a verified ABI-team user view the portal as any provisioned demo user. Remove for production.
+  - name: RETPACK_DEMO_IMPERSONATION
+    value: "1"

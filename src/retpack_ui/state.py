@@ -12,15 +12,18 @@ from collections.abc import Mapping
 import streamlit as st
 
 from retpack_adapters.factory import Container, Settings, build_container
+from retpack_adapters.identity.common import principal_for
+from retpack_core.audit import audit
 from retpack_core.principal import Principal
 
 logger = logging.getLogger(__name__)
 _CONTAINER: Container | None = None
 
 BOUND_EMAIL_KEY = "_principal_email"
+REAL_EMAIL_KEY = "_real_email"
 DEMO_USER_KEY = "demo_user"
 FORWARDED_EMAIL = "X-Forwarded-Email"
-_KEEP_ON_IDENTITY_CHANGE = frozenset({DEMO_USER_KEY, BOUND_EMAIL_KEY})
+_KEEP_ON_IDENTITY_CHANGE = frozenset({DEMO_USER_KEY, BOUND_EMAIL_KEY, REAL_EMAIL_KEY})
 
 
 def get_container() -> Container:
@@ -48,20 +51,54 @@ def request_headers() -> Mapping[str, str]:
 def resolve_principal(container: Container) -> Principal | None:
     """Resolve the signed-in principal on every rerun and bind session state to it.
 
-    With the mock backend the demo switcher overrides the identity by
-    supplying the forwarded-email header the mock provider reads; no other
-    backend exposes ``demo_users`` so the override path does not exist there.
+    Local backends (``demo_mode == "header"``) let the demo switcher supply the
+    forwarded-email header the mock provider reads. Workspace backends verify
+    the real user from the token and, only in ``impersonate`` mode, let a real
+    internal user view the portal as a demo user (see ``effective_principal``).
     """
     headers = dict(request_headers())
-    override = st.session_state.get(DEMO_USER_KEY) if container.demo_users else None
-    if override:
-        headers[FORWARDED_EMAIL] = str(override)
-    principal = container.identity.resolve(headers)
-    if principal is None:
+    override = _override(container)
+    if override and container.demo_mode == "header":
+        headers[FORWARDED_EMAIL] = override
+    real = container.identity.resolve(headers)
+    if real is None:
         forwarded = sorted(k.lower() for k in headers if k.lower().startswith("x-forwarded"))
         logger.info("no principal resolved; forwarded headers present: %s", forwarded)  # names only, never values
+    principal = effective_principal(container, real, override)
     bind_session(principal)
+    st.session_state[REAL_EMAIL_KEY] = real.email if real else None
     return principal
+
+
+def _override(container: Container) -> str | None:
+    value = st.session_state.get(DEMO_USER_KEY) if container.demo_mode != "off" else None
+    return str(value) if value else None
+
+
+def effective_principal(container: Container, real: Principal | None, override: str | None) -> Principal | None:
+    """Apply demo impersonation. Only a verified internal user may view as someone else, and only when enabled."""
+    if container.demo_mode != "impersonate" or real is None or not override or override.lower() == real.email:
+        return real
+    if not real.is_internal or container.directory is None:
+        return real
+    impersonated = principal_for(container.directory, override)
+    if impersonated is None:
+        return real
+    audit("demo_impersonation", real, viewing_as=impersonated.email, role=impersonated.role.value)
+    return impersonated
+
+
+def show_switcher(container: Container, real: str | None, real_is_internal: bool) -> bool:
+    """Local backends always offer the switcher; workspace backends only to a verified internal user."""
+    if container.demo_mode == "header":
+        return True
+    return container.demo_mode == "impersonate" and real is not None and real_is_internal
+
+
+def real_email() -> str | None:
+    """Token-verified email of the signed-in user for this run (None outside a run)."""
+    value = st.session_state.get(REAL_EMAIL_KEY)
+    return str(value) if value else None
 
 
 def bind_session(principal: Principal | None) -> None:

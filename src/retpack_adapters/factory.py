@@ -11,7 +11,7 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from retpack_adapters.attachments.local import LocalAttachmentStore
 from retpack_adapters.identity.mock import MockIdentityProvider
@@ -24,9 +24,10 @@ from retpack_adapters.sql.migrate import apply_files, migration_files
 from retpack_core.attachments import AttachmentPolicy, load_attachment_policy
 from retpack_core.errors import ConfigError
 from retpack_core.fieldspec import FormSpec, load_form_spec
-from retpack_core.ports import AttachmentStore, IdentityProvider, Ports, ReferenceRepository
+from retpack_core.ports import AccountDirectory, AttachmentStore, IdentityProvider, Ports, ReferenceRepository
 from retpack_core.principal import Principal, Role
 
+DemoMode = Literal["off", "header", "impersonate"]
 BACKENDS = ("mock", "sqlite", "delta", "lakebase")
 WORKSPACE_BACKENDS = ("delta", "lakebase")
 _TRUE = {"1", "true", "yes", "on"}
@@ -57,6 +58,8 @@ class Settings:
     lakebase_instance: str = ""
     lakebase_database: str = "databricks_postgres"
     trust_forwarded_email: bool = False
+    demo_impersonation: bool = False
+    """Workspace backends only: let a verified ABI-team user view the portal as any provisioned demo user. Never in production."""
     extra: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -87,6 +90,7 @@ class Settings:
             lakebase_instance=env.get("RETPACK_LAKEBASE_INSTANCE", ""),
             lakebase_database=env.get("RETPACK_LAKEBASE_DATABASE", cls.lakebase_database),
             trust_forwarded_email=_flag(env, "RETPACK_TRUST_FORWARDED_EMAIL", False),
+            demo_impersonation=_flag(env, "RETPACK_DEMO_IMPERSONATION", False),
             extra={k: v for k, v in env.items() if k.startswith("DATABRICKS_")},
         )
 
@@ -116,8 +120,13 @@ class Container:
     identity: IdentityProvider
     spec: FormSpec
     policy: AttachmentPolicy
+    directory: AccountDirectory | None = None
     demo_users: tuple[str, ...] = ()
-    """Selectable identities for the demo switcher. Empty for every non-mock backend."""
+    """Selectable identities for the demo switcher; empty when ``demo_mode`` is off."""
+    demo_mode: DemoMode = "off"
+    """``header``: local backends trust a forwarded-email header (anyone is anyone).
+    ``impersonate``: workspace backends with RETPACK_DEMO_IMPERSONATION=1; the real, token-verified
+    principal must be internal and every switch is audited. ``off``: no switcher."""
 
 
 def build_container(settings: Settings, *, executors: Mapping[str, Callable[[], SqlExecutor]] | None = None, files_client: Any = None) -> Container:
@@ -146,8 +155,11 @@ def _mock(settings: Settings, spec: FormSpec, policy: AttachmentPolicy) -> Conta
     if settings.seed_demo:
         seed_demo(repo, store, settings.mock_data_dir)
     ports = Ports(submissions=repo, reference=load_reference(settings.mock_data_dir), attachments=store)
-    identity = MockIdentityProvider(load_directory(settings.mock_data_dir), default_email=settings.mock_user)
-    return Container("mock", settings, ports, identity, spec, policy, demo_users=list_user_emails(settings.mock_data_dir))
+    directory = load_directory(settings.mock_data_dir)
+    identity = MockIdentityProvider(directory, default_email=settings.mock_user)
+    return Container(
+        "mock", settings, ports, identity, spec, policy, directory=directory, demo_users=list_user_emails(settings.mock_data_dir), demo_mode="header"
+    )
 
 
 def _sqlite(settings: Settings, spec: FormSpec, policy: AttachmentPolicy) -> Container:
@@ -164,8 +176,9 @@ def _sqlite(settings: Settings, spec: FormSpec, policy: AttachmentPolicy) -> Con
     if settings.seed_demo and not repo.list_submissions(_SYSTEM, limit=1):
         seed_demo(repo, store, settings.mock_data_dir)
     ports = Ports(submissions=repo, reference=SqlReferenceRepository(db), attachments=store)
-    identity = MockIdentityProvider(SqlAccountDirectory(db), default_email=settings.mock_user)
-    return Container("sqlite", settings, ports, identity, spec, policy, demo_users=list_user_emails(settings.mock_data_dir))
+    directory = SqlAccountDirectory(db)
+    identity = MockIdentityProvider(directory, default_email=settings.mock_user)
+    return Container("sqlite", settings, ports, identity, spec, policy, directory=directory, demo_users=directory.list_emails(), demo_mode="header")
 
 
 def _workspace(
@@ -184,7 +197,18 @@ def _workspace(
         submissions = SqlSubmissionRepository(lakebase, lakebase_dialect(settings.schema))
     attachments: AttachmentStore = _volume_store(settings, policy, files_client)
     identity = _apps_identity(settings, directory)
-    return Container(settings.backend, settings, Ports(submissions=submissions, reference=reference, attachments=attachments), identity, spec, policy)
+    demo_users = directory.list_emails() if settings.demo_impersonation else ()
+    return Container(
+        settings.backend,
+        settings,
+        Ports(submissions=submissions, reference=reference, attachments=attachments),
+        identity,
+        spec,
+        policy,
+        directory=directory,
+        demo_users=demo_users,
+        demo_mode="impersonate" if settings.demo_impersonation else "off",
+    )
 
 
 def _delta_executor(settings: Settings) -> SqlExecutor:

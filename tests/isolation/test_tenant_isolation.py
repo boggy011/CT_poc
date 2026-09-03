@@ -125,3 +125,12 @@ def test_attachment_store_scopes_by_account(attachment_store, tmp_path):
 
 def test_reference_sales_orgs_are_global(reference: ReferenceRepository):
     assert reference.sales_orgs(NOBODY) == reference.sales_orgs(INTERNAL)
+
+
+def test_directory_lists_emails_for_demo_switcher_only(reference: ReferenceRepository, backend: str, sqlite_db):
+    if backend != "sqlite":
+        pytest.skip("directory listing is exercised on the SQL directory")
+    from retpack_adapters.sql import SqlAccountDirectory
+
+    emails = SqlAccountDirectory(sqlite_db).list_emails()
+    assert "anna@northsea-distribution.example" in emails and "ops1@abi.example" in emails

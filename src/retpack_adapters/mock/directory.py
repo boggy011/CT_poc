@@ -26,3 +26,7 @@ class FixtureAccountDirectory:
     def is_internal(self, email: str) -> bool:
         """See ``AccountDirectory.is_internal``."""
         return email.strip().lower() in self._internal
+
+    def list_emails(self) -> tuple[str, ...]:
+        """See ``AccountDirectory.list_emails``."""
+        return tuple(sorted(set(self._accounts) | self._internal))

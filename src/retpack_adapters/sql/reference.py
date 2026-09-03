@@ -89,6 +89,11 @@ class SqlAccountDirectory:
         rows = self._db.query(f"SELECT 1 FROM {self._t.internal_user} WHERE LOWER(email) = ?", [email.strip().lower()])
         return bool(rows)
 
+    def list_emails(self) -> tuple[str, ...]:
+        """See ``AccountDirectory.list_emails``."""
+        rows = self._db.query(f"SELECT LOWER(email) FROM {self._t.email_account} UNION SELECT LOWER(email) FROM {self._t.internal_user}")
+        return tuple(sorted({str(r[0]) for r in rows}))
+
 
 def _require_account(principal: Principal, account_id: str) -> None:
     if principal.is_scoped and account_id not in principal.account_ids:

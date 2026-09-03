@@ -53,3 +53,7 @@ def test_header_beats_default(directory: FixtureAccountDirectory):
 def test_directory_rejects_bad_role():
     with pytest.raises(ValueError):
         FixtureAccountDirectory([{"email": "x@y.com", "account_ids": [], "role": "ADMIN"}])
+
+
+def test_directory_lists_all_provisioned_emails(directory: FixtureAccountDirectory):
+    assert directory.list_emails() == ("a@dist.com", "ops@abi.com")

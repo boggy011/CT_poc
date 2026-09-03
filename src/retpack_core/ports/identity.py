@@ -20,6 +20,10 @@ class AccountDirectory(Protocol):
         """True if the email belongs to the internal ABI team."""
         ...
 
+    def list_emails(self) -> tuple[str, ...]:
+        """Every provisioned email (customers and internal), for the demo switcher only."""
+        ...
+
 
 class IdentityProvider(Protocol):
     """Turns platform-supplied request context into a ``Principal``."""
