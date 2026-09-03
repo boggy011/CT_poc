@@ -31,7 +31,10 @@ If your email is not mapped to anything you see: *"Your account is not provision
 
 ### Demo mode
 
-When the portal runs locally or on demo data, the sidebar has a **Demo Mode** panel at the bottom with a yellow *identity is not verified* notice and a **Demo user** drop-down. Pick a user to see the portal as them. The demo users are:
+The sidebar has a **Demo Mode** panel with a **View as** drop-down in two situations:
+
+- **Local runs** (`make run-mock`, `make run-sqlite`): anyone can pick any demo user; identity is not verified at all.
+- **The deployed demo**: you sign in with your real account as usual. If that account is on the ABI internal list, the panel appears and you can view the portal as any demo customer or team member to see both sides. The sidebar then shows *Viewing as* the demo user and *Signed in as* you. Customers never get this panel, and every switch is written to the audit log. The option is switched on only for the dev deployment. The demo users are:
 
 | Demo user | Role | Accounts |
 |---|---|---|

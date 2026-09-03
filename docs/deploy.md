@@ -16,6 +16,7 @@ Prerequisites: workspace access with permission to create an app, a SQL warehous
 | App | `retpack-portal`, https://retpack-portal-1283361390446220.0.azure.databricksapps.com, service principal `8c693ca9-c4c8-498f-852f-e262ff4f8000` |
 | Source path | `/Workspace/Users/bogdan.nejcev@customertimes.com/retpack-portal` (uploaded with `databricks sync`) |
 | Row filters | not applied (opt-in; the app queries as its service principal) |
+| Demo impersonation | on (`RETPACK_DEMO_IMPERSONATION=1` in `app.yaml`): ABI-team sign-ins can view as `anna@…`, `bram@…`, `carla@…`, `ops1@…`, `ops2@…` |
 
 ## 1. Schema
 
@@ -93,4 +94,5 @@ The isolation suite is the FR-02 release gate; do not promote a build that does 
 | `DATABRICKS_WAREHOUSE_ID` | SQL warehouse for Delta access |
 | `RETPACK_LAKEBASE_INSTANCE`, `RETPACK_LAKEBASE_DATABASE` | Lakebase backend only |
 | `RETPACK_TRUST_FORWARDED_EMAIL` | `1` falls back to the email header when no token is forwarded (weaker; default `0`) |
+| `RETPACK_DEMO_IMPERSONATION` | `1` lets a token-verified user who is on the internal list view the portal as any provisioned demo user (sidebar **Demo Mode**); every switch is audited as `demo_impersonation`. Dev demo only; leave unset in production |
 | `RETPACK_REAPER_GRACE_HOURS` | reaper grace period (default 24) |

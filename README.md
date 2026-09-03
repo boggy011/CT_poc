@@ -40,6 +40,7 @@ covering every status, including one with an unreadable (scanned) PDF and one de
 | `RETPACK_ATTACHMENT_DIR` | `.retpack_attachments` | Local PDF store for the mock backend |
 | `RETPACK_MOCK_USER` | unset | Default signed-in email for local runs |
 | `RETPACK_MOCK_SEED` | `0` | Seed the demo requests on start (`make run-mock` sets it) |
+| `RETPACK_DEMO_IMPERSONATION` | `0` | Workspace backends: let verified ABI-team users view the portal as demo users (dev demo only) |
 
 `.streamlit/config.toml` caps uploads at the same size as the attachment policy, hides exception details from the
 browser, and carries the visual theme (colours, fonts, dark sidebar); a test keeps the upload cap in sync. Static CSS
