@@ -3,13 +3,15 @@
 Customer-facing intake portal for returnable packaging (empty keg returns) for ABI International Supply Chain, Europe.
 Requirements: [`RETPACK_REQUIREMENTS.md`](RETPACK_REQUIREMENTS.md). Plan and status: [`RETPACK_PLAN.md`](RETPACK_PLAN.md).
 
-Phase A (mock POC) is implemented: all three screens run locally with no workspace and no credentials.
+Phase A (mock POC) is complete and Phase B (real adapters) is built and awaiting a workspace to run against. All three
+screens run locally with no workspace and no credentials on either the `mock` or the persistent `sqlite` backend.
 
 ## Quick start
 
 ```bash
 uv sync --all-extras
-make run-mock
+make run-mock      # in-memory, reseeded on every start
+make run-sqlite    # persistent local database in .retpack/, same SQL code path as the workspace backends
 ```
 
 Open http://localhost:8501. The sidebar shows a **Demo mode** banner and a **Demo user** switcher (mock backend only; no
@@ -29,7 +31,7 @@ covering every status, including one with an unreadable (scanned) PDF and one de
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RETPACK_SUBMISSION_BACKEND` | `mock` | `mock` \| `delta` \| `lakebase` (only `mock` is wired until Phase B) |
+| `RETPACK_SUBMISSION_BACKEND` | `mock` | `mock` \| `sqlite` \| `delta` \| `lakebase`; workspace settings for the last two are in `docs/deploy.md` |
 | `RETPACK_FIELD_SPEC` | `config/fields/placeholder.yaml` | Field specification (FR-03). Real spec arrives as `abi_v1.yaml` in Phase C |
 | `RETPACK_ATTACHMENT_POLICY` | `config/attachments.yaml` | Document types, cardinality, size limit (FR-04) |
 | `RETPACK_MOCK_DATA_DIR` | `config/mock` | Reference data and users for the mock backend |
@@ -44,11 +46,11 @@ browser; a test keeps the two in sync.
 
 ```
 src/retpack_core/      domain models, field-spec validation, event fold, ports, services  (no Databricks / Streamlit imports)
-src/retpack_adapters/  mock repositories, local attachment store, identity providers, factory
+src/retpack_adapters/  sql/ (shared repositories + dialects), sqlite/, delta/, lakebase/ executors, attachment stores, identity, factory
 src/retpack_ui/        Streamlit entry point, three pages, rendering components
-src/retpack_jobs/      CPI dispatch job (Phase C)
+src/retpack_jobs/      maintenance (OPTIMIZE/VACUUM), attachment reaper; CPI dispatch (Phase C)
 config/                field spec, attachment policy, mock data
-migrations/            delta/ and lakebase/ DDL (Phase B)
+migrations/            delta/, lakebase/ and sqlite/ DDL; apply with `python -m retpack_adapters.migrate_cli <backend>`
 tests/                 unit, contract (parametrized over backends), isolation (FR-02 gate), ui (AppTest)
 ```
 
@@ -58,12 +60,16 @@ tests/                 unit, contract (parametrized over backends), isolation (F
 make check            # ruff, mypy, pytest with coverage gate (80%), bandit, pip-audit
 make test             # tests only
 make security         # bandit + pip-audit only
-make contract-delta   # contract + isolation suites against Delta (needs a workspace; Phase B)
+make contract-delta   # contract + isolation suites against Delta (needs a workspace; see docs/deploy.md)
 make contract-lakebase
 ```
 
 The isolation suite in `tests/isolation/` is the FR-02 release gate. It runs against every backend the contract suite
-knows about and includes a static check that no repository method can be called without a `Principal`.
+knows about (`mock` and `sqlite` always; `delta` and `lakebase` when `RETPACK_TEST_DELTA=1` / `RETPACK_TEST_LAKEBASE=1`
+and the workspace settings are present) and includes a static check that no repository method can be called without a
+`Principal`.
+
+Data written by the portal is described in `docs/data_contract.md`; deployment steps are in `docs/deploy.md`.
 
 `tests/unit/test_core_purity.py` fails the build if any Databricks, Streamlit or database-driver import creeps into
 `retpack_core`.

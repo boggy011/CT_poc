@@ -48,3 +48,20 @@ resources:
           spec:
             client: "2"
             dependencies: ["../dist/*.whl"]
+
+    retpack_cpi_dispatch:
+      name: retpack-cpi-dispatch
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: "0 0/5 * * * ?"
+        timezone_id: Europe/Brussels
+      tasks:
+        - task_key: dispatch
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/retpack_jobs/cpi_dispatch_cli.py
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies: ["../dist/*.whl"]

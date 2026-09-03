@@ -58,6 +58,8 @@ class Submission(BaseModel):
     validated_seq: int | None = None
     cpi_reference: str | None = None
     cpi_error: str | None = None
+    cpi_attempts: int = 0
+    """CPI_DISPATCHED events since the last VALIDATED; reset by a re-validation."""
     credit_note: CreditNote | None = None
 
 
@@ -106,10 +108,12 @@ def _on_validated(d: dict[str, Any], e: SubmissionEvent) -> None:
     d["validated_at"] = e.occurred_at
     d["validated_seq"] = e.seq
     d["cpi_error"] = None  # a re-validation after a dead letter re-arms dispatch
+    d["cpi_attempts"] = 0
 
 
 def _on_cpi_dispatched(d: dict[str, Any], e: SubmissionEvent) -> None:
     d["status"] = Status.CPI_PENDING
+    d["cpi_attempts"] = int(d.get("cpi_attempts", 0)) + 1
 
 
 def _on_cpi_succeeded(d: dict[str, Any], e: SubmissionEvent) -> None:

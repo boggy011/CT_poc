@@ -10,6 +10,7 @@ dependencies = [
     "uuid-utils>=0.9",
     "pypdf>=4.2",
     "regex>=2024.5",
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +33,7 @@ dev = [
     "types-regex>=2026.9.3.20260903",
     "pip-audit>=2.10.1",
     "bandit>=1.9.4",
+    "types-requests>=2.33.0.20260712",
 ]
 
 [build-system]
@@ -93,4 +95,6 @@ skip_empty = true
 
 [tool.bandit]
 # B404/B603: the PDF sandbox deliberately runs a fixed, argument-list subprocess of our own module.
-skips = ["B404", "B603"]
+# B608: SQL text interpolates only table identifiers that pass check_identifier() (configuration, never user input);
+#       every value is a bound parameter. The contract suite round-trips hostile strings through the SQL repositories.
+skips = ["B404", "B603", "B608"]

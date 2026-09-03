@@ -18,7 +18,7 @@ from retpack_core.principal import Principal
 
 logger = logging.getLogger(__name__)
 
-FORWARDED_TOKEN = "X-Forwarded-Access-Token"
+FORWARDED_TOKEN = "X-Forwarded-Access-Token"  # nosec B105 - header name, not a secret
 FORWARDED_EMAIL = "X-Forwarded-Email"
 TOKEN_CACHE_TTL_S = 300
 

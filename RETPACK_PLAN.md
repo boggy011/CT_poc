@@ -300,6 +300,8 @@ Exit: `make test` green with ≥ 80% coverage; `make run-mock` demonstrates all 
 
 ### Phase B — Real adapters (needs inputs 3, 4, 6, 7)
 
+**Status (3 Sep 2026): built, not yet run against a workspace.** Every step below is implemented with the workspace-specific pieces behind small interfaces: the shared SQL repositories run the full contract and isolation suites on SQLite on every commit, and the Delta and Lakebase executors, Volume files client and token identity lookup are unit-tested against fakes. What remains for Phase B exit is purely execution against a workspace once input 7 arrives: apply the migrations, run `RETPACK_TEST_DELTA=1 pytest tests/contract tests/isolation`, deploy the app, and confirm the assumed reference view DDL (input 4). Additions made while building: a fourth backend, `sqlite`, gives a persistent local demo through the same SQL code path (`make run-sqlite`); `docs/data_contract.md` v0.9 and `docs/deploy.md` are written; the asset bundle in `databricks.yml` is unvalidated (validation needs credentials). Presigned download URLs (B4) are not available for Volumes, so the two-step download from Phase A stays.
+
 | # | Step | Cx | Tests first |
 |---|---|---|---|
 | B1 | `migrations/delta/`: `submission_event`, `attachment`, `submission_current` view (folded status for the job and for UC row filters), `keg_balance` placeholder table; table properties for auto-optimize and retention | M | Migration applies idempotently on a fresh schema (integration) |
@@ -317,6 +319,8 @@ Exit: `make test` green with ≥ 80% coverage; `make run-mock` demonstrates all 
 | B13 | Structured audit logging of authorization decisions (unprovisioned logins, cross-tenant `NotFoundError`, rejected attachments, role denials) without field values; wire to workspace logs | S | Log assertions in isolation suite |
 
 Exit: contract suite green on all three backends; app on dev workspace; data contract v1 signed off.
+
+**Verification status per step:** B1 migrations render and split cleanly for both engines, SQLite variant applied in tests; B2/B3/B6 shared `SqlSubmissionRepository`, `SqlReferenceRepository` and `SqlAccountDirectory` pass contract + isolation on SQLite, Delta MERGE result handling and concurrent-retry and Postgres placeholder translation and reconnect are unit-tested with fakes; B4 `VolumeAttachmentStore` passes the store scope tests via an in-memory files client; B5 `DatabricksAppsIdentityProvider` resolves identity from the forwarded access token via `current_user.me()` and ignores the email header unless explicitly trusted; B7 CI job `contract-workspace` is gated on a repository variable; B8 `app.yaml` and bundle written; B9 row-filter function and `ALTER TABLE ... SET ROW FILTER` in `migrations/delta/003_row_filters.sql`; B10 `docs/data_contract.md` v0.9; B11 `retpack_jobs.maintenance`; B12 `retpack_jobs.reaper` unit-tested; B13 `retpack_core.audit` JSON lines wired into intake, review, query and identity.
 
 ### Phase C — Real content (needs inputs 1, 2, 5)
 

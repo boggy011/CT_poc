@@ -49,8 +49,8 @@ class LakebaseExecutor:
         if self._conn is not None:
             try:
                 self._conn.close()
-            except Exception:  # noqa: BLE001 - closing a broken connection is best effort
-                pass
+            except Exception as exc:  # noqa: BLE001 - closing a broken connection is best effort
+                logger.debug("ignoring error while closing broken connection: %s", exc)
         self._conn = None
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[tuple[Any, ...]]:
