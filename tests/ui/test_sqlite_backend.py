@@ -7,7 +7,7 @@ from streamlit.testing.v1 import AppTest
 
 from retpack_ui import state
 from tests.ui.conftest import APP, OPS
-from tests.ui.helpers import fill_valid_form, select_starting_with
+from tests.ui.helpers import SUBMIT_KEY, fill_valid_form, select_starting_with
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ def test_queue_and_submit_on_sqlite(sqlite_app):
     select_starting_with(at, "account_id", "A1")
     at.run()
     fill_valid_form(at)
-    at.button(key="FormSubmitter:intake-Submit request").click().run()
+    at.button(key=SUBMIT_KEY).click().run()
     assert not at.exception and at.success
 
     at = sqlite_app(OPS)  # new container, same database file: the request persisted

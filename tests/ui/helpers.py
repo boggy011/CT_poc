@@ -4,6 +4,8 @@ from datetime import date
 
 from streamlit.testing.v1 import AppTest
 
+SUBMIT_KEY = "FormSubmitter:intake-Submit Request"
+
 
 def go(at: AppTest, page: str) -> AppTest:
     return at.sidebar.radio[0].set_value(page).run()

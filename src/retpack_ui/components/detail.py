@@ -7,8 +7,7 @@ import streamlit as st
 from retpack_core.fieldspec import FormSpec
 from retpack_core.fold import Submission
 from retpack_core.models import Status
-
-CUSTOMER_STATUS = {Status.SUBMITTED: "Not validated"}
+from retpack_ui.theme import CUSTOMER_STATUS_LABELS, STATUS_LABELS
 
 
 def short_ref(submission_id: str) -> str:
@@ -18,7 +17,12 @@ def short_ref(submission_id: str) -> str:
 
 def customer_status(sub: Submission) -> str:
     """FR-07: customers see validated / not validated only."""
-    return CUSTOMER_STATUS.get(sub.status, "Validated")
+    return CUSTOMER_STATUS_LABELS[sub.status is not Status.SUBMITTED]
+
+
+def internal_status(sub: Submission) -> str:
+    """Human label for the internal status."""
+    return STATUS_LABELS[sub.status]
 
 
 def fmt_time(value: datetime) -> str:
@@ -35,7 +39,7 @@ def render_values(sub: Submission, spec: FormSpec, *, show_original: bool = Fals
         if show_original:
             original = sub.original_values.get(f.name)
             row["Original"] = "" if original is None else str(original)
-            row["Changed"] = "yes" if original != current else ""
+            row["Changed"] = "Yes" if original != current else ""
         rows.append(row)
     st.dataframe(rows, hide_index=True, width="stretch")
 
@@ -48,10 +52,10 @@ def render_attachments(sub: Submission) -> None:
     rows = [
         {
             "Document": m.original_filename,
-            "Type": m.doc_type,
+            "Type": m.doc_type.replace("_", " ").capitalize(),
             "Pages": m.page_count,
             "Size (KB)": round(m.size_bytes / 1024, 1),
-            "Readable text": "yes" if m.has_text_layer else "no (scanned)",
+            "Readable text": "Yes" if m.has_text_layer else "No (scanned)",
         }
         for m in sub.attachments
     ]
@@ -61,21 +65,23 @@ def render_attachments(sub: Submission) -> None:
 def render_outcome(sub: Submission, *, internal: bool) -> None:
     """Credit note and, for internal users, the CPI outcome."""
     if sub.credit_note:
-        st.info(f"Credit note {sub.credit_note.credit_note_no}: {sub.credit_note.outcome} ({fmt_time(sub.credit_note.recorded_at)})")
+        st.info(
+            f"Credit note {sub.credit_note.credit_note_no}: {sub.credit_note.outcome} ({fmt_time(sub.credit_note.recorded_at)})", icon=":material/receipt_long:"
+        )
     if not internal:
         return
     if sub.cpi_reference:
-        st.success(f"SAP return order {sub.cpi_reference}")
+        st.success(f"SAP return order {sub.cpi_reference}", icon=":material/check_circle:")
     if sub.cpi_error:
-        (st.error if sub.status is Status.CPI_FAILED else st.warning)(f"CPI: {sub.cpi_error}")
+        (st.error if sub.status is Status.CPI_FAILED else st.warning)(f"SAP / CPI: {sub.cpi_error}", icon=":material/error:")
 
 
 def render_audit(sub: Submission, spec: FormSpec) -> None:
     """Internal-only trail of overwrites (NFR-05)."""
     if not sub.overwrites:
+        st.caption("No corrections so far.")
         return
     labels = {f.name: f.label for f in spec.fields}
-    st.markdown("**Changes by the ABI team**")
     rows = [
         {
             "When": fmt_time(o.occurred_at),

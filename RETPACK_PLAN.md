@@ -112,7 +112,7 @@ CT_poc/
 │   │   └── identity/             # MockIdentity, DatabricksAppsIdentity (forwarded headers)
 │   ├── retpack_ui/
 │   │   ├── app.py                # entry: resolve principal, route by role
-│   │   ├── pages/                # intake.py, my_requests.py, internal_queue.py
+│   │   ├── screens/              # intake.py, my_requests.py, internal_queue.py (not 'pages': Streamlit reserves that name)
 │   │   └── components/           # form_renderer.py, attachment_uploader.py, status_badge.py
 │   └── retpack_jobs/
 │       └── cpi_dispatch/         # Databricks Job: poll → CPI → result event (Phase C)

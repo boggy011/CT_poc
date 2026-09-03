@@ -69,7 +69,8 @@ knows about (`mock` and `sqlite` always; `delta` and `lakebase` when `RETPACK_TE
 and the workspace settings are present) and includes a static check that no repository method can be called without a
 `Principal`.
 
-Data written by the portal is described in `docs/data_contract.md`; deployment steps are in `docs/deploy.md`.
+Data written by the portal is described in `docs/data_contract.md`; deployment steps are in `docs/deploy.md`; the
+end-user manual is `docs/USER_MANUAL.md`.
 
 `tests/unit/test_core_purity.py` fails the build if any Databricks, Streamlit or database-driver import creeps into
 `retpack_core`.

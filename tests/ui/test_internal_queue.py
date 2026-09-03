@@ -7,6 +7,7 @@ from retpack_core.models import Status
 from retpack_core.principal import Principal, Role
 from retpack_ui import state
 from retpack_ui.components.detail import short_ref
+from retpack_ui.theme import STATUS_LABELS
 from tests.ui.conftest import OPS
 
 INTERNAL = Principal(email=OPS, account_ids=frozenset(), role=Role.INTERNAL)
@@ -23,7 +24,7 @@ def test_queue_defaults_to_submitted_and_shows_all_when_asked(app_for: Callable[
     at = app_for(OPS)
     assert not at.exception
     table = at.dataframe[0].value
-    assert set(table["Status"]) == {"SUBMITTED"} and len(table) == 5
+    assert set(table["Status"]) == {STATUS_LABELS[Status.SUBMITTED]} and len(table) == 5
     at.selectbox(key="queue_status").select("All").run()
     assert len(at.dataframe[0].value) == 11
 
@@ -62,7 +63,7 @@ def test_validate_moves_request_out_of_submitted(app_for: Callable[[str], AppTes
     assert any("validated" in s.value.lower() for s in at.success)
     sub = state.get_container().ports.submissions.get_submission(INTERNAL, sid)
     assert sub.status is Status.VALIDATED and sub.validated_by == OPS
-    at.selectbox(key="queue_status").select("SUBMITTED").run()
+    at.selectbox(key="queue_status").select(STATUS_LABELS[Status.SUBMITTED]).run()
     assert short_ref(sid) not in [str(o) for o in at.selectbox(key="queue_selected").options]
 
 
@@ -85,10 +86,10 @@ def test_stale_version_shows_conflict(app_for: Callable[[str], AppTest]):
 
 def test_validated_request_has_no_actions_but_dead_letter_does(app_for: Callable[[str], AppTest]):
     at = app_for(OPS)
-    at.selectbox(key="queue_status").select("VALIDATED").run()
+    at.selectbox(key="queue_status").select(STATUS_LABELS[Status.VALIDATED]).run()
     open_first(at)
     assert [b for b in at.button if b.key == "validate"] == []
-    at.selectbox(key="queue_status").select("CPI_FAILED").run()
+    at.selectbox(key="queue_status").select(STATUS_LABELS[Status.CPI_FAILED]).run()
     sid = open_first(at)
     assert any("unknown sold-to" in e.value for e in at.error)
     assert [b for b in at.button if b.key == "validate"]
@@ -130,7 +131,7 @@ def test_download_is_two_step_and_reads_bytes_once(app_for: Callable[[str], AppT
     assert opened == []
     prep = [b for b in at.button if str(b.key).startswith("prep_")]
     if not prep:  # first request may have no PDFs; pick one that does
-        at.selectbox(key="queue_status").select("SUBMITTED").run()
+        at.selectbox(key="queue_status").select(STATUS_LABELS[Status.SUBMITTED]).run()
         for i in range(len(at.selectbox(key="queue_selected").options)):
             at.selectbox(key="queue_selected").select_index(i).run()
             prep = [b for b in at.button if str(b.key).startswith("prep_")]
