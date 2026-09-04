@@ -56,6 +56,7 @@ _CSS = """
 [data-testid="stSidebar"] hr { margin: 14px 0; opacity: .5; }
 [data-testid="stSidebar"] [data-testid="stImage"] img { max-height: 44px; }
 [data-testid="stSidebarHeader"] img, [data-testid="stLogo"] { max-width: 200px; height: auto; }
+[data-testid="stSidebarLogo"] { background: #FFFFFF; padding: 8px 12px; border-radius: 6px; box-sizing: content-box; }
 [data-testid="stSidebar"] > div { overflow-x: hidden; }
 
 /* ---- main area ---- */

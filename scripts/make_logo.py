@@ -1,4 +1,4 @@
-"""Generate placeholder logo assets. Replace assets/*.png with the real brand files; keep the file names.
+"""Generate PLACEHOLDER logo assets (no longer used: assets/ now holds the AB InBev logo). Kept for local experiments.
 
 Run: uv run python scripts/make_logo.py
 """

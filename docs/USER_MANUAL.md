@@ -260,4 +260,4 @@ Local runs always show the demo user switcher.
 - **Fields**: the real ~30 fields from the ABI mapping file replace the placeholder set. Sections, labels and rules are configuration, so the screens stay the same.
 - **Document types**: the real list and how many of each.
 - **Status names**: ABI's official enum replaces the placeholder names; customers still see only validated / not validated.
-- **Look and feel**: the first design pass is in (dark menu sidebar, copper accent, cards, status badges). The logo in `assets/` is a placeholder for the real brand files.
+- **Look and feel**: the first design pass is in (dark menu sidebar, copper accent, cards, status badges). The AB InBev logo is in place.
