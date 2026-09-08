@@ -92,3 +92,41 @@ def test_query_returns_tuples():
 def test_is_concurrent_error_markers():
     assert is_concurrent_error(Exception("DELTA_CONCURRENT_WRITE"))
     assert not is_concurrent_error(Exception("syntax error"))
+
+
+def test_stale_session_reconnects_once_and_retries():
+    err = RuntimeError("RequestError: Error during request to server: INVALID_STATE: Invalid SessionHandle: SessionHandle [abc]")
+    first = FakeConnection([err])
+    second = FakeConnection([[("ok",)]])
+    conns = iter([first, second])
+    ex = DeltaExecutor(lambda: next(conns))
+    assert ex.query("SELECT 1") == [("ok",)]
+    assert len(first.calls) == 1 and len(second.calls) == 1
+
+
+def test_stale_session_on_execute_reconnects():
+    err = RuntimeError("Invalid SessionHandle")
+    first = FakeConnection([err])
+    second = FakeConnection([[FakeRow(num_inserted_rows=1)]])
+    conns = iter([first, second])
+    assert DeltaExecutor(lambda: next(conns)).execute("MERGE INTO t", []) == 1
+
+
+def test_session_error_twice_propagates():
+    err = RuntimeError("Invalid SessionHandle")
+    conns = iter([FakeConnection([err]), FakeConnection([err])])
+    with pytest.raises(RuntimeError):
+        DeltaExecutor(lambda: next(conns)).query("SELECT 1")
+
+
+def test_non_session_error_does_not_reconnect():
+    conns_used = []
+
+    def connect():
+        conn = FakeConnection([RuntimeError("TABLE_OR_VIEW_NOT_FOUND")])
+        conns_used.append(conn)
+        return conn
+
+    with pytest.raises(RuntimeError):
+        DeltaExecutor(connect).query("SELECT 1")
+    assert len(conns_used) == 1

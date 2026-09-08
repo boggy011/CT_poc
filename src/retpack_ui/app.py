@@ -86,18 +86,22 @@ def main() -> None:
             _demo_user_switcher(container, real)
         st.divider()
         st.caption("RetPack Portal · ABI International Supply Chain")
-    _render_guarded(pages[choice], container, principal)
+    pages[choice](container, principal)
 
 
-def _render_guarded(page: Page, container: Container, principal: Principal) -> None:
-    """Never let an exception reach the browser with internals attached."""
+def _render_guarded(body: Callable[[], None]) -> None:
+    """Never let an exception reach the browser with internals attached.
+
+    Streamlit's own control-flow exceptions (rerun, stop) subclass BaseException
+    and pass through untouched.
+    """
     try:
-        page(container, principal)
+        body()
     except RetPackError as exc:
         st.error(str(exc))
     except Exception:
         ref = uuid.uuid4().hex[:8]
-        logger.exception("unhandled error [%s] for %s", ref, principal.email)
+        logger.exception("unhandled error [%s]", ref)
         st.error(f"Something went wrong. Please try again or contact support with reference {ref}.")
 
 
